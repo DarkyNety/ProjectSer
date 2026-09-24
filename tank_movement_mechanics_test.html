@@ -1,0 +1,1686 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MBT PATRIOT · Тестовый полигон</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{width:100%;height:100%;overflow:hidden;background:#0a0c0f;
+            font-family:'Segoe UI',system-ui,-apple-system,sans-serif;color:#cfd8e3;}
+  canvas{display:block;}
+  #loader{position:fixed;inset:0;display:grid;place-items:center;background:#0a0c0f;
+          color:#5a6672;font-family:ui-monospace,monospace;font-size:12px;
+          letter-spacing:.35em;transition:opacity .7s ease;z-index:10;}
+
+  #ui{position:fixed;inset:0;pointer-events:none;z-index:10;
+      font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;user-select:none;}
+  #ui .panel{position:absolute;left:22px;top:20px;
+             font-size:12px;line-height:1.75;letter-spacing:.07em;
+             text-transform:uppercase;color:#cfd6dd;text-shadow:0 0 14px rgba(0,0,0,.95);}
+  #ui h1{font-size:15px;font-weight:600;letter-spacing:.24em;color:#eef3f7;}
+  #ui h1 span{color:#ff5a3c;}
+  #ui .sub{color:#5d6a76;font-size:10px;letter-spacing:.18em;margin-top:3px;}
+  #ui .hint{margin-top:14px;color:#6f7c88;font-size:10.5px;line-height:1.9;}
+  #ui kbd{display:inline-block;min-width:16px;text-align:center;padding:1px 5px;margin:0 1px;
+          background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);
+          border-radius:3px;color:#ff8b6f;font-size:10px;}
+  #ui .status{position:absolute;right:22px;top:22px;font-size:11px;text-align:right;
+              letter-spacing:.14em;text-transform:uppercase;color:#8a95a0;}
+  #ui .status b{display:block;color:#ff8b6f;font-size:15px;letter-spacing:.08em;}
+  #prompt{position:absolute;left:50%;bottom:140px;transform:translateX(-50%);
+          padding:10px 22px;background:rgba(255,90,60,.12);border:1px solid rgba(255,90,60,.5);
+          border-radius:6px;font-size:13px;letter-spacing:3px;text-transform:uppercase;
+          color:#ffb89f;opacity:0;transition:opacity .2s;backdrop-filter:blur(6px);}
+  #prompt.show{opacity:1;}
+
+  /* ============================================
+     DIGITAL VHS TANK SIGHT
+     ============================================ */
+  #sight{position:absolute;inset:0;opacity:0;transition:opacity .25s;pointer-events:none;}
+  #sight.show{opacity:1;}
+
+  /* Внешний слой — вьетнамская зелёная фосфорная сетка */
+  #sight .svg-layer{
+    position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    width:460px;height:460px;
+    filter:drop-shadow(0 0 4px rgba(80,255,140,.55))
+           drop-shadow(0 0 12px rgba(80,255,140,.25));
+  }
+  #sight .svg-layer svg{width:100%;height:100%;display:block;}
+
+  /* Сканлайны (VHS) */
+  #sight .scanlines{
+    position:absolute;inset:0;
+    background:repeating-linear-gradient(
+      0deg,
+      rgba(0,0,0,0.42) 0px,
+      rgba(0,0,0,0.42) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    mix-blend-mode:multiply;
+    opacity:0.75;
+    animation:scanShift 8s linear infinite;
+  }
+  @keyframes scanShift {
+    0% { background-position-y: 0; }
+    100% { background-position-y: 60px; }
+  }
+
+  /* Шум поверх */
+  #sight .noise{
+    position:absolute;inset:0;
+    opacity:0.14;
+    mix-blend-mode:overlay;
+    background-image:
+      radial-gradient(circle at 17% 23%, rgba(255,255,255,.9) 0.4px, transparent 1px),
+      radial-gradient(circle at 73% 66%, rgba(255,255,255,.8) 0.5px, transparent 1.2px),
+      radial-gradient(circle at 42% 88%, rgba(255,255,255,.7) 0.4px, transparent 1px),
+      radial-gradient(circle at 88% 12%, rgba(255,255,255,.9) 0.5px, transparent 1px);
+    background-size: 13px 13px, 17px 19px, 23px 11px, 7px 23px;
+    animation:noiseShift 0.12s steps(2) infinite;
+  }
+  @keyframes noiseShift {
+    0% { background-position: 0 0, 0 0, 0 0, 0 0; }
+    50% { background-position: -6px 3px, 4px -3px, -2px 5px, 3px -2px; }
+    100% { background-position: 3px -2px, -3px 4px, 5px -3px, -4px 3px; }
+  }
+
+  /* Плавающая горизонтальная полоса (глюк VHS) */
+  #sight .glitch-bar{
+    position:absolute;left:0;right:0;height:18px;
+    background:linear-gradient(90deg,
+      rgba(120,255,160,0.02) 0%,
+      rgba(120,255,160,0.22) 30%,
+      rgba(120,255,160,0.02) 60%,
+      rgba(120,255,160,0.20) 85%,
+      rgba(120,255,160,0.02) 100%);
+    mix-blend-mode:screen;
+    animation:glitchMove 6s linear infinite;
+    pointer-events:none;
+  }
+  @keyframes glitchMove {
+    0%   { top: 5%; opacity: 0; }
+    8%   { opacity: 0.9; }
+    12%  { top: 22%; opacity: 0.4; }
+    30%  { top: 22%; opacity: 0; }
+    55%  { top: 62%; opacity: 0.85; }
+    60%  { top: 65%; opacity: 0.3; }
+    80%  { top: 65%; opacity: 0; }
+    100% { top: 90%; opacity: 0; }
+  }
+
+  /* HUD поверх VHS */
+  #sight .vhs-hud{
+    position:absolute;inset:0;
+    color:#7cffb0;
+    text-shadow:0 0 6px rgba(80,255,140,.85), 0 0 14px rgba(80,255,140,.3);
+    font-family:ui-monospace,'Courier New',monospace;
+    font-size:13px;
+    letter-spacing:1.2px;
+  }
+  #sight .vhs-hud .rec{
+    position:absolute;top:32px;left:36px;
+    display:flex;align-items:center;gap:8px;
+    font-weight:700;
+  }
+  #sight .vhs-hud .rec .dot{
+    width:11px;height:11px;border-radius:50%;
+    background:#ff3020;
+    box-shadow:0 0 10px #ff3020;
+    animation:recBlink 1.1s steps(1) infinite;
+  }
+  @keyframes recBlink { 0%,55%{opacity:1;} 56%,100%{opacity:0.15;} }
+
+  #sight .vhs-hud .tc{
+    position:absolute;bottom:36px;left:36px;
+    font-size:14px;letter-spacing:2px;
+  }
+  #sight .vhs-hud .tc .sub{opacity:.55;font-size:11px;letter-spacing:1px;}
+
+  #sight .vhs-hud .mode{
+    position:absolute;top:32px;right:36px;
+    text-align:right;
+    font-size:12px;line-height:1.7;
+  }
+  #sight .vhs-hud .mode b{color:#c8ffd8;font-weight:700;}
+
+  #sight .vhs-hud .sp{
+    position:absolute;bottom:36px;right:36px;
+    text-align:right;
+    font-size:11px;letter-spacing:2px;line-height:1.8;
+  }
+  #sight .vhs-hud .sp .bar{
+    display:inline-block;width:70px;height:8px;
+    border:1px solid #7cffb0;
+    background:linear-gradient(90deg,#7cffb0 0%,#7cffb0 78%,transparent 78%);
+    vertical-align:middle;margin-left:6px;
+  }
+
+  /* Уголки полей захвата */
+  #sight .vhs-hud .corner{
+    position:absolute;width:22px;height:22px;
+    border:2px solid #7cffb0;
+    opacity:.85;
+  }
+  #sight .vhs-hud .tl{top:16px;left:16px;border-right:none;border-bottom:none;}
+  #sight .vhs-hud .tr{top:16px;right:16px;border-left:none;border-bottom:none;}
+  #sight .vhs-hud .bl{bottom:16px;left:16px;border-right:none;border-top:none;}
+  #sight .vhs-hud .br{bottom:16px;right:16px;border-left:none;border-top:none;}
+
+  /* Полупрозрачный VHS-оттенок всего поля */
+  #sight .tint{
+    position:absolute;inset:0;
+    background:radial-gradient(circle at 50% 50%,
+      rgba(60,180,100,0.05) 0%,
+      rgba(20,80,40,0.14) 70%,
+      rgba(0,20,10,0.35) 100%);
+    mix-blend-mode:screen;
+    pointer-events:none;
+  }
+
+  /* ============================================
+     Прочие элементы HUD
+     ============================================ */
+  #reload{position:absolute;left:50%;bottom:100px;transform:translateX(-50%);
+          width:300px;opacity:0;transition:opacity .2s;text-align:center;}
+  #reload.show{opacity:1;}
+  #reload .label{font-size:10px;letter-spacing:5px;color:#8a95a0;margin-bottom:6px;}
+  #reload .bar{height:5px;background:rgba(255,255,255,.1);border-radius:3px;overflow:hidden;
+               border:1px solid rgba(255,255,255,.18);}
+  #reload .fill{height:100%;width:0%;background:linear-gradient(90deg,#ff5a3c,#ffa060);
+                transition:width .04s linear;}
+
+  #exploded{position:absolute;left:50%;top:40%;transform:translate(-50%,-50%);
+            font-size:20px;letter-spacing:6px;color:#ff5020;
+            text-shadow:0 0 20px #ff3010;opacity:0;transition:opacity .3s;
+            text-transform:uppercase;font-weight:300;}
+  #exploded.show{opacity:1;}
+
+  #vignette{position:fixed;inset:0;pointer-events:none;z-index:9;
+            background:radial-gradient(ellipse at center,transparent 60%,rgba(0,0,0,.5) 100%);
+            opacity:0;transition:opacity .3s;}
+  #vignette.show{opacity:1;}
+</style>
+</head>
+<body>
+
+<div id="loader">ЗАГРУЗКА МОДЕЛИ…</div>
+
+<div id="ui">
+  <div class="panel">
+    <h1>MBT<span>·</span>PATRIOT</h1>
+    <div class="sub">125 ММ · ТЕСТОВЫЙ ПОЛИГОН</div>
+    <div class="hint">
+      <kbd>F</kbd> — войти/выйти из танка<br>
+      <kbd>WASD</kbd> — движение<br>
+      <kbd>ЛКМ</kbd> — выстрел орудия<br>
+      <kbd>ПКМ</kbd> — прицел · <kbd>R</kbd> — перезарядка<br>
+      <kbd>B</kbd> — подорвать танк
+    </div>
+  </div>
+  <div class="status">РЕЖИМ <b id="modeVal">ПЕШИЙ</b></div>
+  <div id="prompt">Нажмите F чтобы войти в танк</div>
+
+  <!-- ================= VHS TANK SIGHT ================= -->
+  <div id="sight">
+    <div class="tint"></div>
+
+    <!-- Сетка прицела (SVG) -->
+    <div class="svg-layer">
+      <svg viewBox="-230 -230 460 460" xmlns="http://www.w3.org/2000/svg">
+        <!-- Внешние скобки поля обзора -->
+        <circle cx="0" cy="0" r="215" fill="none" stroke="#7cffb0" stroke-width="1.2" opacity="0.35"/>
+        <circle cx="0" cy="0" r="180" fill="none" stroke="#7cffb0" stroke-width="0.5" opacity="0.20"/>
+
+        <!-- Горизонтальная шкала траверса -->
+        <line x1="-200" y1="0" x2="-28" y2="0" stroke="#7cffb0" stroke-width="1.2"/>
+        <line x1="28" y1="0" x2="200" y2="0" stroke="#7cffb0" stroke-width="1.2"/>
+
+        <g stroke="#7cffb0" stroke-width="0.9">
+          <line x1="-42" y1="-9" x2="-42" y2="9"/>
+          <line x1="-58" y1="-9" x2="-58" y2="9"/>
+          <line x1="-76" y1="-13" x2="-76" y2="13"/>
+          <line x1="-96" y1="-13" x2="-96" y2="13"/>
+          <line x1="-118" y1="-18" x2="-118" y2="18"/>
+          <line x1="-142" y1="-18" x2="-142" y2="18"/>
+          <line x1="-170" y1="-22" x2="-170" y2="22"/>
+          <line x1="42" y1="-9" x2="42" y2="9"/>
+          <line x1="58" y1="-9" x2="58" y2="9"/>
+          <line x1="76" y1="-13" x2="76" y2="13"/>
+          <line x1="96" y1="-13" x2="96" y2="13"/>
+          <line x1="118" y1="-18" x2="118" y2="18"/>
+          <line x1="142" y1="-18" x2="142" y2="18"/>
+          <line x1="170" y1="-22" x2="170" y2="22"/>
+        </g>
+
+        <!-- Верхняя шкала возвышения -->
+        <line x1="0" y1="-200" x2="0" y2="-28" stroke="#7cffb0" stroke-width="1.2"/>
+        <g stroke="#7cffb0" stroke-width="0.9">
+          <line x1="-10" y1="-42" x2="10" y2="-42"/>
+          <line x1="-10" y1="-58" x2="10" y2="-58"/>
+          <line x1="-14" y1="-76" x2="14" y2="-76"/>
+          <line x1="-14" y1="-96" x2="14" y2="-96"/>
+          <line x1="-18" y1="-118" x2="18" y2="-118"/>
+          <line x1="-18" y1="-142" x2="18" y2="-142"/>
+        </g>
+
+        <!-- Дальномерные шевроны (вниз) -->
+        <line x1="0" y1="28" x2="0" y2="200" stroke="#7cffb0" stroke-width="1.2"/>
+        <g stroke="#7cffb0" stroke-width="1" fill="none">
+          <polyline points="-18,44 0,58 18,44"/>
+          <polyline points="-18,74 0,88 18,74"/>
+          <polyline points="-18,104 0,118 18,104"/>
+          <polyline points="-18,134 0,148 18,134"/>
+          <polyline points="-18,164 0,178 18,164"/>
+        </g>
+
+        <!-- Числа дальности -->
+        <g fill="#7cffb0" font-family="ui-monospace,monospace" font-size="12" opacity="0.9">
+          <text x="24" y="60">4</text>
+          <text x="24" y="90">8</text>
+          <text x="24" y="120">12</text>
+          <text x="24" y="150">16</text>
+          <text x="24" y="180">20</text>
+        </g>
+
+        <!-- Центральный маркер -->
+        <g fill="none" stroke="#7cffb0" stroke-width="1.3">
+          <rect x="-8" y="-8" width="16" height="16"/>
+          <line x1="-5" y1="0" x2="5" y2="0" stroke-width="1.5"/>
+          <line x1="0" y1="-5" x2="0" y2="5" stroke-width="1.5"/>
+        </g>
+        <circle cx="0" cy="0" r="1.8" fill="#c8ffd8"/>
+
+        <!-- Вспомогательные точки -->
+        <g fill="#7cffb0" opacity="0.75">
+          <circle cx="-28" cy="0" r="1.2"/>
+          <circle cx="28" cy="0" r="1.2"/>
+          <circle cx="0" cy="-28" r="1.2"/>
+        </g>
+
+        <!-- Крестообразный ориентир на 3/6/9/12 -->
+        <g stroke="#7cffb0" stroke-width="1.8" opacity="0.65">
+          <line x1="0" y1="-222" x2="0" y2="-212"/>
+          <line x1="0" y1="212" x2="0" y2="222"/>
+          <line x1="-222" y1="0" x2="-212" y2="0"/>
+          <line x1="212" y1="0" x2="222" y2="0"/>
+        </g>
+
+        <!-- Тип боеприпаса -->
+        <text x="0" y="-188" fill="#7cffb0" font-family="ui-monospace,monospace"
+              font-size="10" text-anchor="middle" opacity="0.7" letter-spacing="2">APFSDS-T</text>
+      </svg>
+    </div>
+
+    <!-- Оверлеи VHS -->
+    <div class="scanlines"></div>
+    <div class="noise"></div>
+    <div class="glitch-bar"></div>
+
+    <!-- HUD поверх VHS -->
+    <div class="vhs-hud">
+      <div class="corner tl"></div>
+      <div class="corner tr"></div>
+      <div class="corner bl"></div>
+      <div class="corner br"></div>
+
+      <div class="rec">
+        <span class="dot"></span>
+        <span>REC</span>
+      </div>
+
+      <div class="mode">
+        <div><b>GUNNER</b> SIGHT</div>
+        <div style="opacity:.65;">MODE-4 / AUTO</div>
+        <div style="opacity:.45;">RNG 2450 M</div>
+      </div>
+
+      <div class="tc">
+        TC&nbsp;<span id="vhs-time">00:00:00</span>
+        <div class="sub">SP · DVCAM · 12H</div>
+      </div>
+
+      <div class="sp">
+        <div>BAT <span class="bar"></span> 78%</div>
+        <div style="opacity:.55;">TAPE 01 / 04</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="reload">
+    <div class="label">ПЕРЕЗАРЯДКА ОРУДИЯ</div>
+    <div class="bar"><div class="fill" id="reloadFill"></div></div>
+  </div>
+
+  <div id="exploded">ТАНК УНИЧТОЖЕН</div>
+</div>
+
+<div id="vignette"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const composer = new EffectComposer(renderer);
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight), 0.55, 0.5, 0.82
+);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0c0f);
+scene.fog = new THREE.Fog(0x0a0c0f, 300, 1200);
+
+const camera = new THREE.PerspectiveCamera(65, window.innerWidth/window.innerHeight, 0.1, 3000);
+camera.rotation.order = 'YXZ';
+
+composer.addPass(new RenderPass(scene, camera));
+composer.addPass(bloomPass);
+composer.addPass(new OutputPass());
+
+const pmrem = new THREE.PMREMGenerator(renderer);
+const envRT = pmrem.fromScene(new RoomEnvironment(), 0.05);
+scene.environment = envRT.texture;
+pmrem.dispose();
+
+scene.add(new THREE.HemisphereLight(0x9db4d0, 0x1a1a10, 0.65));
+const sun = new THREE.DirectionalLight(0xfff2d8, 2.6);
+sun.position.set(120, 180, 130);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 800;
+sun.shadow.camera.left = -220;
+sun.shadow.camera.right = 220;
+sun.shadow.camera.top = 220;
+sun.shadow.camera.bottom = -220;
+sun.shadow.bias = -0.0006;
+sun.shadow.normalBias = 0.15;
+sun.shadow.radius = 3;
+scene.add(sun);
+scene.add(sun.target);
+scene.add(new THREE.DirectionalLight(0x6fa8ff, 1.2).translateX(-150).translateY(70).translateZ(-140));
+
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(4000, 4000),
+  new THREE.MeshStandardMaterial({ color: 0x3a3d2e, roughness: 0.96, metalness: 0.03 })
+);
+ground.rotation.x = -Math.PI/2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+const gridHelper = new THREE.GridHelper(2000, 100, 0x4a5038, 0x32382c);
+gridHelper.position.y = 0.02;
+gridHelper.material.transparent = true;
+gridHelper.material.opacity = 0.35;
+scene.add(gridHelper);
+
+function makeNoiseTexture(size=256, contrast=0.45){
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(size, size);
+  for (let i=0; i<size*size; i++){
+    const v = 185 + (Math.random()-0.5)*255*contrast;
+    img.data[i*4] = img.data[i*4+1] = img.data[i*4+2] = v;
+    img.data[i*4+3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(3,3);
+  return tex;
+}
+const NOISE = makeNoiseTexture();
+const NOISE_FINE = makeNoiseTexture(256, 0.20); NOISE_FINE.repeat.set(10,10);
+
+const MAT = {
+  armor: new THREE.MeshStandardMaterial({ color: 0x4a5540, metalness: 0.6, roughness: 0.72, roughnessMap: NOISE }),
+  armorDark: new THREE.MeshStandardMaterial({ color: 0x323a2a, metalness: 0.68, roughness: 0.68, roughnessMap: NOISE }),
+  armorLight: new THREE.MeshStandardMaterial({ color: 0x5a654a, metalness: 0.55, roughness: 0.78, roughnessMap: NOISE }),
+  armorBurnt: new THREE.MeshStandardMaterial({ color: 0x14120e, metalness: 0.5, roughness: 0.9, roughnessMap: NOISE }),
+  era: new THREE.MeshStandardMaterial({ color: 0x3a4230, metalness: 0.62, roughness: 0.78, roughnessMap: NOISE_FINE }),
+  trackLink: new THREE.MeshStandardMaterial({ color: 0x18191c, metalness: 0.92, roughness: 0.58, roughnessMap: NOISE }),
+  trackCleat: new THREE.MeshStandardMaterial({ color: 0x2e333a, metalness: 0.95, roughness: 0.5, roughnessMap: NOISE }),
+  roadWheel: new THREE.MeshStandardMaterial({ color: 0x18191b, metalness: 0.5, roughness: 0.78, roughnessMap: NOISE }),
+  wheelHub: new THREE.MeshStandardMaterial({ color: 0x4a5058, metalness: 0.95, roughness: 0.4, roughnessMap: NOISE }),
+  steel: new THREE.MeshStandardMaterial({ color: 0x4a5058, metalness: 0.95, roughness: 0.42, roughnessMap: NOISE }),
+  steelDark: new THREE.MeshStandardMaterial({ color: 0x22262b, metalness: 1.0, roughness: 0.55, roughnessMap: NOISE }),
+  blackMetal: new THREE.MeshStandardMaterial({ color: 0x121418, metalness: 0.9, roughness: 0.65, roughnessMap: NOISE }),
+  thermalWrap: new THREE.MeshStandardMaterial({ color: 0x5a5a52, metalness: 0.15, roughness: 0.92 }),
+  rubber: new THREE.MeshStandardMaterial({ color: 0x0a0b0c, metalness: 0.03, roughness: 0.95 }),
+  cable: new THREE.MeshStandardMaterial({ color: 0x3a3a3a, metalness: 0.85, roughness: 0.6, roughnessMap: NOISE_FINE }),
+  drum: new THREE.MeshStandardMaterial({ color: 0x3a4535, metalness: 0.7, roughness: 0.65, roughnessMap: NOISE }),
+  glass: new THREE.MeshPhysicalMaterial({ color: 0x2a4a6a, metalness: 0.3, roughness: 0.08,
+    transparent: true, opacity: 0.55, side: THREE.DoubleSide, clearcoat: 1.0 }),
+  lampGlass: new THREE.MeshPhysicalMaterial({ color: 0xfff2c0, emissive: 0xffd070, emissiveIntensity: 0.6,
+    transparent: true, opacity: 0.7, roughness: 0.1 }),
+  marking: new THREE.MeshStandardMaterial({ color: 0xd8d8d0, metalness: 0.1, roughness: 0.85 }),
+  redMark: new THREE.MeshStandardMaterial({ color: 0xa02020, metalness: 0.1, roughness: 0.85 }),
+  wood: new THREE.MeshStandardMaterial({ color: 0x6a4a20, metalness: 0.05, roughness: 0.88, roughnessMap: NOISE }),
+  woodTarget: new THREE.MeshStandardMaterial({ color: 0xa87840, metalness: 0.05, roughness: 0.85, roughnessMap: NOISE }),
+  concrete: new THREE.MeshStandardMaterial({ color: 0x8a8d80, metalness: 0.05, roughness: 0.92, roughnessMap: NOISE }),
+  barrelRed: new THREE.MeshStandardMaterial({ color: 0x8a2a1a, metalness: 0.6, roughness: 0.55, roughnessMap: NOISE }),
+  barrelGreen: new THREE.MeshStandardMaterial({ color: 0x3a4a2a, metalness: 0.6, roughness: 0.55, roughnessMap: NOISE }),
+  gong: new THREE.MeshStandardMaterial({ color: 0xa8b0a0, metalness: 0.9, roughness: 0.35 }),
+};
+
+function mesh(geo, mat, x=0, y=0, z=0) {
+  const m = new THREE.Mesh(geo, mat);
+  m.position.set(x, y, z);
+  return m;
+}
+function box(w,h,d,mat,x=0,y=0,z=0){ return mesh(new THREE.BoxGeometry(w,h,d), mat, x, y, z); }
+function cyl(r1,r2,h,seg,mat,x=0,y=0,z=0,axis='x'){
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r1,r2,h,seg), mat);
+  if (axis==='x') m.rotation.z = Math.PI/2;
+  if (axis==='z') m.rotation.x = Math.PI/2;
+  m.position.set(x,y,z);
+  return m;
+}
+
+/* ============================================================
+   ТАНК
+   ============================================================ */
+const tank = new THREE.Group();
+scene.add(tank);
+
+const HULL_LEN = 100;
+const HULL_W = 40;
+const HULL_H = 24;
+const WHEEL_R = 7.0;
+const WHEEL_Y = 7.5;
+const TRACK_W = 17.0;
+const TRACK_OUTER_R = WHEEL_R + 1.3;
+const TRACK_TOP = WHEEL_Y + TRACK_OUTER_R;
+const TRACK_BOT = WHEEL_Y - TRACK_OUTER_R;
+const TRACK_Z = HULL_W/2 + TRACK_W/2 - 2;
+const FRONT_X = HULL_LEN/2 - 9;
+const REAR_X = -HULL_LEN/2 + 9;
+const HULL_BOTTOM = 7.0;
+const HULL_TOP = HULL_BOTTOM + HULL_H;
+const HULL_CENTER_Y = HULL_BOTTOM + HULL_H/2;
+const FENDER_Y = TRACK_TOP * 1.184;
+const TANK_SCALE = 0.08;
+tank.scale.setScalar(TANK_SCALE);
+const TANK_LIFT = -TRACK_BOT * TANK_SCALE;
+
+const rollingWheelsLeft = [];
+const rollingWheelsRight = [];
+const trackAssemblies = [];
+
+tank.add(box(HULL_LEN, HULL_H, HULL_W, MAT.armorDark, 0, HULL_CENTER_Y, 0));
+tank.add(box(HULL_LEN-2, 1.0, HULL_W-2, MAT.armorLight, 0, HULL_TOP+0.5, 0));
+
+(function addNose(){
+  const s = new THREE.Shape();
+  s.moveTo(0,0); s.lineTo(0, HULL_H-2); s.lineTo(8, HULL_H-8); s.lineTo(8, -0.5); s.closePath();
+  const g = new THREE.ExtrudeGeometry(s, { depth: HULL_W-4, bevelEnabled: false });
+  g.translate(0,0,-(HULL_W-4)/2);
+  g.computeVertexNormals();
+  const nose = new THREE.Mesh(g, MAT.armor);
+  nose.position.set(HULL_LEN/2 - 1, HULL_BOTTOM, 0);
+  tank.add(nose);
+})();
+
+(function addFrontERA(){
+  const rows = [
+    { x: HULL_LEN/2 - 3, y: HULL_TOP - 2, w: 4, h: 2 },
+    { x: HULL_LEN/2 - 7.5, y: HULL_TOP - 4.5, w: 4, h: 2 },
+    { x: HULL_LEN/2 - 12, y: HULL_TOP - 7, w: 4, h: 2 }
+  ];
+  for (const r of rows) {
+    for (let i=0; i<6; i++) {
+      const ez = -HULL_W/2 + 3 + i*6;
+      const era = box(r.w, r.h, 5.4, MAT.era, r.x, r.y, ez);
+      era.rotation.z = 0.14;
+      tank.add(era);
+    }
+  }
+})();
+
+tank.add(box(14, 3.5, 12, MAT.armor, HULL_LEN/2 - 8, HULL_TOP+1.5, 0));
+tank.add(box(2.4, 1.6, 4.2, MAT.armorDark, HULL_LEN/2 - 2.5, HULL_TOP+2.4, 0));
+tank.add(box(2.5, 1.0, 0.2, MAT.glass, HULL_LEN/2 - 1.3, HULL_TOP+2.4, 0));
+
+tank.add(box(1.5, HULL_H, HULL_W-4, MAT.armor, -HULL_LEN/2 + 0.5, HULL_CENTER_Y, 0));
+tank.add(box(2.5, 6, HULL_W-8, MAT.armorDark, -HULL_LEN/2 - 0.8, HULL_BOTTOM+3.5, 0));
+
+for (const side of [-1, 1]) {
+  const hookX = -HULL_LEN/2 - 1.5;
+  const hookZ = side * 8;
+  tank.add(box(2.2, 3.4, 2.6, MAT.armorDark, hookX, HULL_BOTTOM+5, hookZ));
+  const hook = new THREE.Mesh(new THREE.TorusGeometry(1.2, 0.4, 8, 20, Math.PI*1.4), MAT.steelDark);
+  hook.position.set(hookX - 1.2, HULL_BOTTOM+5, hookZ);
+  hook.rotation.y = Math.PI/2; hook.rotation.z = Math.PI*0.3;
+  tank.add(hook);
+}
+
+for (let i=0; i<4; i++) {
+  tank.add(box(0.7, HULL_H, 1.2, MAT.steelDark, -HULL_LEN/2 + 18 + i*18, HULL_CENTER_Y, HULL_W/2 - 0.5));
+  tank.add(box(0.7, HULL_H, 1.2, MAT.steelDark, -HULL_LEN/2 + 18 + i*18, HULL_CENTER_Y, -HULL_W/2 + 0.5));
+}
+
+tank.add(box(18, 0.5, HULL_W-10, MAT.blackMetal, -HULL_LEN/2 + 12, HULL_TOP+1.1, 0));
+for (let i=0; i<11; i++) {
+  tank.add(box(0.7, 0.4, HULL_W-10.5, MAT.steelDark, -HULL_LEN/2 + 4 + i*1.7, HULL_TOP+1.4, 0));
+}
+
+tank.add(box(12, 4.0, 3.0, MAT.armorDark, -26, HULL_TOP+3.0, HULL_W/2 - 2));
+tank.add(box(9, 3.5, 3.0, MAT.armorDark, -26, HULL_TOP+2.8, -HULL_W/2 + 2));
+tank.add(box(7, 3.5, 3.0, MAT.armorDark, -12, HULL_TOP+2.8, HULL_W/2 - 2));
+
+for (const side of [-1, 1]) {
+  const bx = -HULL_LEN/2 - 4;
+  const bz = side * 12;
+  tank.add(cyl(3.5, 3.5, 9, 20, MAT.drum, bx, HULL_TOP-4, bz, 'x'));
+  for (let i=-1; i<=1; i++) {
+    tank.add(cyl(3.55, 3.55, 0.5, 20, MAT.steelDark, bx + i*3.0, HULL_TOP-4, bz, 'x'));
+  }
+  tank.add(cyl(3.55, 3.55, 0.3, 20, MAT.steelDark, bx + 4.7, HULL_TOP-4, bz, 'x'));
+}
+
+(function addTowCable(){
+  const pts = [
+    new THREE.Vector3(-HULL_LEN/2 + 2, HULL_TOP+0.5, HULL_W/2 - 1),
+    new THREE.Vector3(-20, HULL_TOP+0.8, HULL_W/2 - 1),
+    new THREE.Vector3(0, HULL_TOP+1.0, HULL_W/2 - 1),
+    new THREE.Vector3(20, HULL_TOP+0.8, HULL_W/2 - 1),
+    new THREE.Vector3(HULL_LEN/2 - 6, HULL_TOP+0.5, HULL_W/2 - 2)
+  ];
+  const curve = new THREE.CatmullRomCurve3(pts);
+  const geo = new THREE.TubeGeometry(curve, 40, 0.35, 8, false);
+  tank.add(new THREE.Mesh(geo, MAT.cable));
+})();
+
+tank.add(box(HULL_LEN-4, 0.9, TRACK_W+5, MAT.armor, 0, FENDER_Y+0.5, TRACK_Z));
+tank.add(box(HULL_LEN-4, 0.9, TRACK_W+5, MAT.armor, 0, FENDER_Y+0.5, -TRACK_Z));
+
+for (const side of [-1, 1]) {
+  const sz = side * TRACK_Z;
+  tank.add(box(HULL_LEN-6, 2.5, 0.6, MAT.armor, 0, FENDER_Y-1.0, sz + side*(TRACK_W/2+0.5)));
+  for (let i=0; i<5; i++) {
+    tank.add(box(0.5, 2.7, 0.8, MAT.steelDark, -HULL_LEN/2 + 12 + i*20, FENDER_Y-1.0, sz + side*(TRACK_W/2+0.5)));
+  }
+  for (let i=0; i<6; i++) {
+    const fx = -HULL_LEN/2 + 10 + i*14;
+    tank.add(box(12, 11.0, 0.4, MAT.rubber, fx, FENDER_Y-7.75, sz + side*(TRACK_W/2+0.6)));
+  }
+}
+
+tank.add(box(3.5, 5.0, TRACK_W+5, MAT.armorDark, HULL_LEN/2 - 0.5, FENDER_Y+3.0, TRACK_Z));
+tank.add(box(3.5, 5.0, TRACK_W+5, MAT.armorDark, HULL_LEN/2 - 0.5, FENDER_Y+3.0, -TRACK_Z));
+tank.add(box(3.5, 4.5, TRACK_W+5, MAT.armorDark, -HULL_LEN/2 + 0.5, FENDER_Y+2.5, TRACK_Z));
+tank.add(box(3.5, 4.5, TRACK_W+5, MAT.armorDark, -HULL_LEN/2 + 0.5, FENDER_Y+2.5, -TRACK_Z));
+
+for (let i=0; i<6; i++) {
+  const tz = -15 + i*6;
+  tank.add(box(2.4, 0.8, 5.0, MAT.trackLink, HULL_LEN/2 - 1.5, HULL_TOP+0.8, tz));
+}
+
+function createTrackLinkGeometry(){
+  const parts = [];
+  parts.push(new THREE.BoxGeometry(2.6, 0.8, TRACK_W-0.5));
+  for (const s of [-1, 1]) {
+    const sw = new THREE.BoxGeometry(2.6, 2.0, 0.55);
+    sw.translate(0, 0.8, s*(TRACK_W/2 - 0.5));
+    parts.push(sw);
+  }
+  const inner = new THREE.BoxGeometry(1.8, 1.6, 0.5); inner.translate(0, 0.75, 0); parts.push(inner);
+  const pin = new THREE.CylinderGeometry(0.28, 0.28, TRACK_W-0.6, 10);
+  pin.rotateX(Math.PI/2); pin.translate(0, 1.0, 0); parts.push(pin);
+  const cleat = new THREE.BoxGeometry(1.6, 1.0, TRACK_W-2.5); cleat.translate(0, 1.55, 0); parts.push(cleat);
+  const horn = new THREE.BoxGeometry(0.8, 0.8, 1.8); horn.translate(0, -0.8, 0); parts.push(horn);
+  return mergeGeometries(parts);
+}
+const TRACK_LINK_GEO = createTrackLinkGeometry();
+
+function buildTrackAssembly(side){
+  const tz = side * TRACK_Z;
+  const wheelArr = side > 0 ? rollingWheelsLeft : rollingWheelsRight;
+  const pts = [];
+  pts.push(new THREE.Vector3(REAR_X, TRACK_TOP, 0));
+  pts.push(new THREE.Vector3(FRONT_X, TRACK_TOP, 0));
+  for (let i=1; i<8; i++) {
+    const a = Math.PI/2 - (i/8)*Math.PI;
+    pts.push(new THREE.Vector3(FRONT_X + Math.cos(a)*TRACK_OUTER_R, WHEEL_Y + Math.sin(a)*TRACK_OUTER_R, 0));
+  }
+  pts.push(new THREE.Vector3(FRONT_X, TRACK_BOT, 0));
+  pts.push(new THREE.Vector3(REAR_X, TRACK_BOT, 0));
+  for (let i=1; i<8; i++) {
+    const a = -Math.PI/2 - (i/8)*Math.PI;
+    pts.push(new THREE.Vector3(REAR_X + Math.cos(a)*TRACK_OUTER_R, WHEEL_Y + Math.sin(a)*TRACK_OUTER_R, 0));
+  }
+  const curve = new THREE.CatmullRomCurve3(pts, true, 'catmullrom', 0.05);
+  const curveLength = curve.getLength();
+  const N_LINKS = 110;
+  const links = [];
+  for (let i=0; i<N_LINKS; i++) {
+    const m = new THREE.Mesh(TRACK_LINK_GEO, MAT.trackLink);
+    m.castShadow = true; m.receiveShadow = true;
+    m.position.z = tz;
+    tank.add(m);
+    links.push({ mesh: m, t: i/N_LINKS });
+  }
+  const wheelXs = [-33, -19.8, -6.6, 6.6, 19.8, 33];
+  for (const wx of wheelXs) {
+    const wheelG = new THREE.Group();
+    wheelG.position.set(wx, WHEEL_Y, tz);
+    const tire = new THREE.Mesh(new THREE.CylinderGeometry(WHEEL_R, WHEEL_R, 3.4, 28), MAT.roadWheel);
+    tire.rotation.x = Math.PI/2; wheelG.add(tire);
+    const rim = new THREE.Mesh(new THREE.CylinderGeometry(WHEEL_R-0.8, WHEEL_R-0.8, 3.7, 28), MAT.steelDark);
+    rim.rotation.x = Math.PI/2; wheelG.add(rim);
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 1.8, 4.0, 24), MAT.wheelHub);
+    hub.rotation.x = Math.PI/2; wheelG.add(hub);
+    const marker = new THREE.Mesh(new THREE.BoxGeometry(0.7, WHEEL_R-2.5, 3.9), MAT.steel);
+    marker.position.set(0, (WHEEL_R-2.5)/2, 0);
+    wheelG.add(marker);
+    tank.add(wheelG);
+    wheelArr.push({ group: wheelG, radius: WHEEL_R });
+  }
+  const sp = new THREE.Group();
+  sp.position.set(FRONT_X, WHEEL_Y, tz);
+  const spBody = new THREE.Mesh(new THREE.CylinderGeometry(WHEEL_R, WHEEL_R, 3.6, 28), MAT.steelDark);
+  spBody.rotation.x = Math.PI/2; sp.add(spBody);
+  for (let i=0; i<16; i++) {
+    const a = (i/16)*Math.PI*2;
+    const tooth = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.6, 4.2), MAT.trackCleat);
+    tooth.position.set(Math.cos(a)*(WHEEL_R+0.3), Math.sin(a)*(WHEEL_R+0.3), 0);
+    tooth.rotation.z = a;
+    sp.add(tooth);
+  }
+  tank.add(sp);
+  wheelArr.push({ group: sp, radius: WHEEL_R+0.3 });
+  const idl = new THREE.Group();
+  idl.position.set(REAR_X, WHEEL_Y, tz);
+  const idBody = new THREE.Mesh(new THREE.CylinderGeometry(WHEEL_R+0.15, WHEEL_R+0.15, 3.4, 28), MAT.roadWheel);
+  idBody.rotation.x = Math.PI/2; idl.add(idBody);
+  const idHub = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 1.7, 4.0, 24), MAT.wheelHub);
+  idHub.rotation.x = Math.PI/2; idl.add(idHub);
+  tank.add(idl);
+  wheelArr.push({ group: idl, radius: WHEEL_R+0.15 });
+  for (const rx of [-24, -8, 8, 24]) {
+    const rG = new THREE.Group();
+    rG.position.set(rx, TRACK_TOP-2.0, tz);
+    const r = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 1.8, 2.8, 18), MAT.roadWheel);
+    r.rotation.x = Math.PI/2; rG.add(r);
+    const rH = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 3.1, 14), MAT.wheelHub);
+    rH.rotation.x = Math.PI/2; rG.add(rH);
+    tank.add(rG);
+    wheelArr.push({ group: rG, radius: 1.8 });
+  }
+  trackAssemblies.push({ side, tz, curve, curveLength, links, offset: 0 });
+}
+
+buildTrackAssembly(1);
+buildTrackAssembly(-1);
+
+function updateTrackLinks(asm, offset){
+  for (const l of asm.links) {
+    let t = (l.t + offset) % 1;
+    if (t < 0) t += 1;
+    const pos = asm.curve.getPointAt(t);
+    const tan = asm.curve.getTangentAt(t);
+    l.mesh.position.set(pos.x, pos.y, asm.tz);
+    l.mesh.rotation.z = Math.atan2(tan.y, tan.x);
+  }
+}
+for (const asm of trackAssemblies) updateTrackLinks(asm, 0);
+
+const turret = new THREE.Group();
+turret.position.set(-8, HULL_TOP+1, 0);
+tank.add(turret);
+
+turret.add(box(38, 7.5, 32, MAT.armor, 0, 3.75, 0));
+turret.add(box(36, 1.8, 30, MAT.armorDark, 0, 7.9, 0));
+for (const side of [-1, 1]) {
+  const cheek = box(28, 6.5, 3.5, MAT.armor, -2, 4.4, side*15.5);
+  cheek.rotation.x = side * -0.18;
+  turret.add(cheek);
+}
+for (const side of [-1, 1]) {
+  for (let i=0; i<5; i++) {
+    const ex = 10 - i*6;
+    const ez = side * 15.8;
+    const era = box(5.4, 3.4, 1.8, MAT.era, ex, 4.4, ez);
+    era.rotation.x = side * -0.18;
+    turret.add(era);
+  }
+}
+turret.add(box(5, 6.5, 9, MAT.armorDark, 19.5, 3.75, 0));
+turret.add(box(36, 1.2, 30, MAT.armorLight, -1, 9.2, 0));
+
+(function(){
+  turret.add(box(3, 8, 24, MAT.armorDark, -21, 4, 0));
+  turret.add(box(12, 0.4, 22, MAT.steelDark, -24, 0.5, 0));
+  turret.add(box(12, 3.5, 0.4, MAT.steelDark, -24, 2.2, 10.8));
+  turret.add(box(12, 3.5, 0.4, MAT.steelDark, -24, 2.2, -10.8));
+  turret.add(box(0.4, 3.5, 21.6, MAT.steelDark, -30, 2.2, 0));
+})();
+
+const cupola = new THREE.Group();
+cupola.position.set(-10, 9.8, 7);
+turret.add(cupola);
+cupola.add(cyl(5.0, 5.2, 2.2, 24, MAT.armor, 0, 1.1, 0, 'y'));
+cupola.add(cyl(4.8, 4.8, 0.6, 24, MAT.armorDark, 0, 2.5, 0, 'y'));
+cupola.add(cyl(3.4, 3.4, 0.4, 24, MAT.armorLight, 0, 2.9, 0, 'y'));
+
+turret.add(cyl(3.8, 3.8, 0.6, 20, MAT.armor, 5, 9.8, -6, 'y'));
+turret.add(cyl(2.8, 2.8, 0.3, 20, MAT.armorLight, 5, 10.2, -6, 'y'));
+turret.add(cyl(3.3, 3.3, 0.5, 20, MAT.armor, -16, 9.7, -6, 'y'));
+
+(function(){
+  turret.add(box(5.5, 2.4, 3.6, MAT.armorDark, 8, 10.3, 5));
+  turret.add(box(4.4, 1.8, 0.18, MAT.glass, 8, 10.3, 7.0));
+})();
+
+for (const side of [-1, 1]) {
+  const bank = new THREE.Group();
+  bank.position.set(-4, 8.5, side * 17);
+  bank.rotation.y = side * 0.4;
+  bank.add(box(9, 1.8, 2.2, MAT.armorDark, 0, -1.0, 0));
+  for (let i=0; i<6; i++) {
+    const tx = -3.5 + i*1.4;
+    bank.add(cyl(0.7, 0.7, 3.0, 10, MAT.blackMetal, tx, 0, 0, 'x'));
+  }
+  turret.add(bank);
+}
+
+(function(){
+  const hmg = new THREE.Group();
+  hmg.position.set(-10, 12.4, 7);
+  turret.add(hmg);
+  hmg.add(box(7.0, 1.6, 1.6, MAT.blackMetal, 1.8, 0.5, 0));
+  hmg.add(cyl(0.4, 0.35, 9, 12, MAT.steelDark, 9.0, 0.5, 0, 'x'));
+  hmg.add(cyl(0.65, 0.65, 1.4, 12, MAT.blackMetal, 14.0, 0.5, 0, 'x'));
+  hmg.add(box(3.0, 2.6, 2.4, MAT.armorDark, -1.8, 0.5, 1.8));
+})();
+
+const gunMount = new THREE.Group();
+gunMount.position.set(20, 3.75, 0);
+turret.add(gunMount);
+gunMount.add(cyl(2.8, 2.8, 3.5, 28, MAT.armorDark, 3.5, 0, 0, 'x'));
+gunMount.add(cyl(1.5, 1.3, 78, 28, MAT.steel, 40, 0, 0, 'x'));
+for (let seg=0; seg<3; seg++) {
+  const sx = 30 + seg*14;
+  gunMount.add(cyl(1.75, 1.75, 12, 28, MAT.thermalWrap, sx + 6, 0, 0, 'x'));
+  gunMount.add(cyl(1.85, 1.85, 0.5, 28, MAT.steelDark, sx, 0, 0, 'x'));
+  gunMount.add(cyl(1.85, 1.85, 0.5, 28, MAT.steelDark, sx + 12, 0, 0, 'x'));
+}
+gunMount.add(cyl(2.6, 2.6, 7, 28, MAT.steelDark, 3.5, 0, 0, 'x'));
+gunMount.add(cyl(2.0, 2.0, 9, 28, MAT.steelDark, 42, 0, 0, 'x'));
+gunMount.add(cyl(2.4, 2.4, 6, 28, MAT.steelDark, 50, 0, 0, 'x'));
+gunMount.add(cyl(1.4, 1.4, 1.8, 28, MAT.blackMetal, 79, 0, 0, 'x'));
+
+tank.add(cyl(1.8, 1.8, 1.2, 20, MAT.steelDark, HULL_LEN/2-3, HULL_BOTTOM+5, HULL_W/2-6, 'x'));
+tank.add(cyl(1.8, 1.8, 1.2, 20, MAT.steelDark, HULL_LEN/2-3, HULL_BOTTOM+5, -HULL_W/2+6, 'x'));
+const lampL = new THREE.Mesh(new THREE.CircleGeometry(1.6, 20), MAT.lampGlass);
+lampL.rotation.y = Math.PI/2;
+lampL.position.set(HULL_LEN/2 - 2.4, HULL_BOTTOM+5, HULL_W/2 - 6);
+tank.add(lampL);
+const lampR = new THREE.Mesh(new THREE.CircleGeometry(1.6, 20), MAT.lampGlass);
+lampR.rotation.y = Math.PI/2;
+lampR.position.set(HULL_LEN/2 - 2.4, HULL_BOTTOM+5, -HULL_W/2 + 6);
+tank.add(lampR);
+
+tank.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+
+/* ПОЛИГОН */
+const hittables = [];
+function addCrate(x, y, z, w=4, h=4, d=4, ry=0, mat=MAT.wood) {
+  const m = box(w, h, d, mat, x, y+h/2, z);
+  m.rotation.y = ry;
+  scene.add(m); hittables.push(m);
+}
+function addBarrel(x, z, mat=MAT.barrelRed) {
+  const g = new THREE.Group();
+  g.add(cyl(2, 2, 5.6, 16, mat, 0, 2.8, 0, 'y'));
+  g.add(cyl(2.05, 2.05, 0.3, 16, MAT.steelDark, 0, 1.5, 0, 'y'));
+  g.add(cyl(2.05, 2.05, 0.3, 16, MAT.steelDark, 0, 4.1, 0, 'y'));
+  g.position.set(x, 0, z);
+  scene.add(g);
+  g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; hittables.push(o); } });
+}
+function addWoodTarget(x, z, ry=0) {
+  const g = new THREE.Group();
+  g.add(box(0.5, 10, 0.5, MAT.wood, -2.5, 5, 0));
+  g.add(box(0.5, 10, 0.5, MAT.wood, 2.5, 5, 0));
+  g.add(box(7, 8, 0.6, MAT.woodTarget, 0, 8, 0));
+  for (const [r, c] of [[3.2, 0xd8d0c0],[2.2, 0xa02020],[1.2, 0xd8d0c0],[0.6, 0xa02020]]) {
+    const mat = new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 });
+    const circle = new THREE.Mesh(new THREE.CircleGeometry(r, 24), mat);
+    circle.position.set(0, 8, 0.35);
+    g.add(circle);
+  }
+  g.add(box(5.5, 0.4, 0.4, MAT.wood, 0, 3, 0));
+  g.position.set(x, 0, z);
+  g.rotation.y = ry;
+  scene.add(g);
+  g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; hittables.push(o); } });
+}
+function addConcreteWall(x, z, w, h, d, ry=0) {
+  const m = box(w, h, d, MAT.concrete, x, h/2, z);
+  m.rotation.y = ry;
+  scene.add(m); hittables.push(m);
+}
+function addGong(x, z, r=4) {
+  const g = new THREE.Group();
+  g.add(box(0.8, 6, 0.8, MAT.steelDark, 0, 3, 0));
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.4, 24), MAT.gong);
+  disc.rotation.x = Math.PI/2;
+  disc.position.set(0, 10, 0);
+  g.add(disc);
+  g.position.set(x, 0, z);
+  scene.add(g);
+  g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; hittables.push(o); } });
+}
+
+addCrate(-40, 0, -50, 5, 5, 5, 0.2);
+addCrate(-40, 5, -50, 4, 4, 4, -0.1);
+addCrate(-34, 0, -52, 5, 5, 5, 0.4);
+addCrate(45, 0, -55, 6, 6, 6, -0.3);
+addCrate(45, 6, -55, 4, 4, 4, 0.5);
+addCrate(52, 0, -60, 5, 5, 5, 0);
+addCrate(-70, 0, -80, 8, 8, 8, 0.3);
+addCrate(-60, 0, -90, 5, 5, 5, -0.2);
+addCrate(70, 0, -100, 8, 8, 8, 0.4);
+addCrate(85, 0, -95, 5, 5, 5, 0);
+addCrate(0, 0, -120, 10, 10, 10, 0.15);
+
+for (const [x, z, m] of [[-20,-60,MAT.barrelRed],[12,-55,MAT.barrelGreen],[-15,-80,MAT.barrelRed],
+                          [35,-70,MAT.barrelGreen],[50,-85,MAT.barrelRed],[-55,-100,MAT.barrelGreen],
+                          [65,-110,MAT.barrelRed],[20,-100],[22,-105],[24,-100]]) {
+  addBarrel(x, z, m);
+}
+for (const [x, z, r] of [[-10,-50,0],[10,-52,0],[0,-70,0.2],[-25,-95,0.3],[25,-95,-0.2],
+                          [60,-75,0.4],[-60,-75,-0.3]]) {
+  addWoodTarget(x, z, r);
+}
+addConcreteWall(-30, -110, 30, 8, 4);
+addConcreteWall(30, -115, 30, 8, 4);
+addConcreteWall(0, -140, 60, 10, 4);
+addConcreteWall(-80, -30, 4, 10, 40);
+addConcreteWall(80, -30, 4, 10, 40);
+
+addGong(-45, -140, 5);
+addGong(45, -140, 5);
+addGong(0, -170, 6);
+
+for (let i=0; i<12; i++) {
+  const a = (i/12)*Math.PI*2;
+  const r = 350 + Math.random()*200;
+  const h = new THREE.Mesh(
+    new THREE.ConeGeometry(30 + Math.random()*40, 25 + Math.random()*35, 5),
+    new THREE.MeshStandardMaterial({ color: 0x3a4030, roughness: 1.0, flatShading: true })
+  );
+  h.position.set(Math.cos(a)*r, -3, Math.sin(a)*r - 100);
+  h.rotation.y = Math.random()*3;
+  scene.add(h);
+}
+hittables.push(ground);
+
+/* СОСТОЯНИЕ */
+const STATE = { ON_FOOT: 0, IN_TANK: 1 };
+let currentState = STATE.ON_FOOT;
+
+const player = {
+  pos: new THREE.Vector3(15, 1.8, 15),
+  vel: new THREE.Vector3(),
+  yaw: -Math.PI * 0.75,
+  pitch: -0.05,
+  height: 1.8,
+  radius: 0.9,
+  onGround: true,
+  walkSpeed: 6.5,
+  sprintSpeed: 11
+};
+
+const tankState = {
+  x: 0, z: 0, rotY: 0, fwdSpeed: 0, turnRate: 0,
+  turretYaw: 0,
+  gunPitch: 0.03,
+  recoilOffset: 0,
+  recoilRot: 0
+};
+
+let tankDestroyed = false;
+
+const keys = {};
+window.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (keys[k]) return;
+  keys[k] = true;
+  if (k === 'f') tryEnterExit();
+  if (k === 'b') explodeTank();
+  if (k === 'r') tryReload();
+});
+window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+let pointerLocked = false;
+let adsHeld = false;
+const sensitivity = 0.0022;
+
+renderer.domElement.addEventListener('click', () => {
+  renderer.domElement.requestPointerLock();
+});
+document.addEventListener('pointerlockchange', () => {
+  pointerLocked = document.pointerLockElement === renderer.domElement;
+});
+document.addEventListener('mousemove', e => {
+  if (!pointerLocked) return;
+  const sens = sensitivity * (adsHeld ? 0.3 : 1.0);
+  player.yaw -= e.movementX * sens;
+  player.pitch -= e.movementY * sens;
+  const pMin = currentState === STATE.IN_TANK ? -0.12 : -1.4;
+  const pMax = currentState === STATE.IN_TANK ? 0.30 : 1.4;
+  player.pitch = Math.max(pMin, Math.min(pMax, player.pitch));
+});
+document.addEventListener('mousedown', e => {
+  if (!pointerLocked) return;
+  if (e.button === 0) tryFire();
+  if (e.button === 2) adsHeld = true;
+});
+document.addEventListener('mouseup', e => {
+  if (e.button === 2) adsHeld = false;
+});
+document.addEventListener('contextmenu', e => e.preventDefault());
+
+const promptEl = document.getElementById('prompt');
+const sightEl = document.getElementById('sight');
+const modeEl = document.getElementById('modeVal');
+const reloadEl = document.getElementById('reload');
+const reloadFillEl = document.getElementById('reloadFill');
+const vignetteEl = document.getElementById('vignette');
+const explodedEl = document.getElementById('exploded');
+const vhsTimeEl = document.getElementById('vhs-time');
+
+function tryEnterExit() {
+  if (tankDestroyed) return;
+  if (currentState === STATE.IN_TANK) {
+    exitTank();
+  } else {
+    const dist = player.pos.distanceTo(new THREE.Vector3(tankState.x, 0, tankState.z));
+    if (dist < 8) enterTank();
+  }
+}
+
+function enterTank() {
+  currentState = STATE.IN_TANK;
+  player.yaw = tankState.rotY + tankState.turretYaw - Math.PI / 2;
+  player.pitch = tankState.gunPitch;
+  promptEl.classList.remove('show');
+  modeEl.textContent = 'ТАНК';
+  vignetteEl.classList.add('show');
+}
+
+function exitTank() {
+  currentState = STATE.ON_FOOT;
+  const rightDir = new THREE.Vector3(Math.cos(tankState.rotY + Math.PI/2), 0, -Math.sin(tankState.rotY + Math.PI/2));
+  player.pos.copy(new THREE.Vector3(tankState.x, player.height, tankState.z));
+  player.pos.addScaledVector(rightDir, 4);
+  player.yaw = tankState.rotY - Math.PI/2;
+  modeEl.textContent = 'ПЕШИЙ';
+  vignetteEl.classList.remove('show');
+  adsHeld = false;
+  sightEl.classList.remove('show');
+}
+
+const RELOAD_DURATION = 7.5;
+let reloadTimer = 0;
+let reloading = false;
+
+function tryReload() {
+  if (currentState !== STATE.IN_TANK) return;
+  if (reloading || tankDestroyed) return;
+  if (reloadTimer > 0) return;
+  reloading = true;
+  reloadTimer = RELOAD_DURATION;
+  reloadEl.classList.add('show');
+}
+
+function updateReload(dt) {
+  if (!reloading) {
+    if (reloadTimer > 0) reloadTimer = Math.max(0, reloadTimer - dt);
+    return;
+  }
+  reloadTimer -= dt;
+  const progress = 1 - reloadTimer / RELOAD_DURATION;
+  reloadFillEl.style.width = (progress * 100) + '%';
+  if (reloadTimer <= 0) {
+    reloading = false;
+    reloadTimer = 0;
+    reloadEl.classList.remove('show');
+  }
+}
+
+const shells = [];
+const shellGeo = new THREE.CylinderGeometry(0.25, 0.3, 1.6, 12);
+shellGeo.rotateZ(-Math.PI/2);
+const shellMat = new THREE.MeshStandardMaterial({
+  color: 0x8a7040, metalness: 1.0, roughness: 0.35,
+  emissive: 0xff6020, emissiveIntensity: 0.4, toneMapped: false
+});
+
+function tryFire() {
+  if (currentState !== STATE.IN_TANK) return;
+  if (tankDestroyed) return;
+  if (reloading) return;
+  if (reloadTimer > 0) return;
+
+  tankState.recoilOffset = 3.5;
+  tankState.recoilRot = 0.05;
+  cameraShake = 1.2;
+
+  gunMount.updateWorldMatrix(true, false);
+  const barrelTipLocal = new THREE.Vector3(85, 0, 0);
+  const shellPos = barrelTipLocal.clone().applyMatrix4(gunMount.matrixWorld);
+
+  const q = new THREE.Quaternion();
+  gunMount.getWorldQuaternion(q);
+  const shellDir = new THREE.Vector3(1, 0, 0).applyQuaternion(q).normalize();
+
+  const m = new THREE.Mesh(shellGeo, shellMat);
+  m.position.copy(shellPos);
+  m.quaternion.copy(q);
+  scene.add(m);
+
+  shells.push({
+    mesh: m,
+    vel: shellDir.clone().multiplyScalar(200),
+    life: 6,
+    smokeTimer: 0
+  });
+
+  for (let i = 0; i < 30; i++) {
+    const v = shellDir.clone().multiplyScalar(8 + Math.random() * 15);
+    v.x += (Math.random() - 0.5) * 8;
+    v.y += (Math.random() - 0.5) * 8;
+    v.z += (Math.random() - 0.5) * 8;
+    spawnParticle(shellPos, v, 0xffc060, 0.6 + Math.random() * 0.5, 0.3, 0.5, 0.3, 1.2, 0.1);
+  }
+  for (let i = 0; i < 20; i++) {
+    const v = shellDir.clone().multiplyScalar(3 + Math.random() * 5);
+    v.x += (Math.random() - 0.5) * 5;
+    v.y += (Math.random() - 0.5) * 5;
+    v.z += (Math.random() - 0.5) * 5;
+    spawnParticle(shellPos, v, 0x606060, 1.5 + Math.random(), 0.05, 0.6, 0.4, 2.0, 0.2);
+  }
+
+  reloading = true;
+  reloadTimer = RELOAD_DURATION;
+  reloadEl.classList.add('show');
+  reloadFillEl.style.width = '0%';
+}
+
+const raycaster = new THREE.Raycaster();
+
+function updateShells(dt) {
+  for (let i = shells.length - 1; i >= 0; i--) {
+    const s = shells[i];
+    s.life -= dt;
+    if (s.life <= 0) {
+      scene.remove(s.mesh);
+      shells.splice(i, 1);
+      continue;
+    }
+    const oldPos = s.mesh.position.clone();
+    s.mesh.position.addScaledVector(s.vel, dt);
+    s.mesh.lookAt(s.mesh.position.clone().add(s.vel));
+
+    for (let k = 0; k < 2; k++) {
+      const p = oldPos.clone().lerp(s.mesh.position, Math.random());
+      const v = s.vel.clone().multiplyScalar(-0.05);
+      v.x += (Math.random() - 0.5) * 3;
+      v.y += (Math.random() - 0.5) * 3;
+      v.z += (Math.random() - 0.5) * 3;
+      spawnParticle(p, v, 0xff9040, 0.35, 0.5, 0.25, 0.2, 0.5, 0.05);
+    }
+
+    const moveDir = s.mesh.position.clone().sub(oldPos);
+    const dist = moveDir.length();
+    raycaster.set(oldPos, moveDir.normalize());
+    raycaster.far = dist;
+    const hits = raycaster.intersectObjects(hittables, false);
+    if (hits.length > 0) {
+      createExplosion(hits[0].point, 1.0);
+      scene.remove(s.mesh);
+      shells.splice(i, 1);
+      continue;
+    }
+    if (s.mesh.position.y < 0) {
+      createExplosion(new THREE.Vector3(s.mesh.position.x, 0.1, s.mesh.position.z), 1.0);
+      scene.remove(s.mesh);
+      shells.splice(i, 1);
+    }
+    raycaster.far = 2000;
+  }
+}
+
+const explosions = [];
+
+function createExplosion(pos, scale = 1.0) {
+  const flash = new THREE.Mesh(
+    new THREE.SphereGeometry(1.2 * scale, 20, 16),
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff, transparent: true, opacity: 1.0,
+      blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false
+    })
+  );
+  flash.position.copy(pos); flash.renderOrder = 9;
+  scene.add(flash);
+
+  const fireballs = [];
+  for (let i = 0; i < 4; i++) {
+    const ang = Math.random() * Math.PI * 2;
+    const rad = Math.random() * 1.5 * scale;
+    const fb = new THREE.Mesh(
+      new THREE.SphereGeometry((1.8 + Math.random() * 1.2) * scale, 16, 12),
+      new THREE.MeshBasicMaterial({
+        color: Math.random() < 0.5 ? 0xffa040 : 0xff6020,
+        transparent: true, opacity: 0.9,
+        blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false
+      })
+    );
+    fb.position.copy(pos);
+    fb.position.x += Math.cos(ang) * rad;
+    fb.position.z += Math.sin(ang) * rad;
+    fb.position.y += (Math.random() - 0.3) * rad * 0.6;
+    fb.renderOrder = 7;
+    scene.add(fb);
+    fireballs.push(fb);
+  }
+
+  const darkLayer = new THREE.Mesh(
+    new THREE.SphereGeometry(2.6 * scale, 20, 16),
+    new THREE.MeshBasicMaterial({
+      color: 0xa02010, transparent: true, opacity: 0.55,
+      blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false
+    })
+  );
+  darkLayer.position.copy(pos);
+  darkLayer.renderOrder = 5;
+  scene.add(darkLayer);
+
+  let shock = null;
+  if (pos.y < 4) {
+    shock = new THREE.Mesh(
+      new THREE.RingGeometry(0.4 * scale, 1.0 * scale, 48),
+      new THREE.MeshBasicMaterial({
+        color: 0xffdba0, transparent: true, opacity: 0.95,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+        side: THREE.DoubleSide, toneMapped: false
+      })
+    );
+    shock.rotation.x = -Math.PI/2;
+    shock.position.set(pos.x, 0.06, pos.z);
+    shock.renderOrder = 4;
+    scene.add(shock);
+  }
+
+  const light = new THREE.PointLight(0xffa060, 500 * scale, 60 * scale, 2);
+  light.position.copy(pos);
+  scene.add(light);
+
+  for (let i = 0; i < 90 * scale; i++) {
+    const v = new THREE.Vector3(
+      (Math.random() - 0.5) * 50 * scale,
+      Math.random() * 35 * scale,
+      (Math.random() - 0.5) * 50 * scale
+    );
+    const c = Math.random() < 0.6 ? 0xffd080 : 0xff6020;
+    spawnParticle(pos, v, c, 0.7 + Math.random() * 0.8, 1.5, 0.35, 0.3, 0.05, 0.02);
+  }
+  for (let i = 0; i < 45 * scale; i++) {
+    const v = new THREE.Vector3(
+      (Math.random() - 0.5) * 40 * scale,
+      Math.random() * 28 * scale,
+      (Math.random() - 0.5) * 40 * scale
+    );
+    spawnParticle(pos, v, 0x2a2018, 2.5 + Math.random() * 2.0, 1.7, 0.5, 0.6, 0.25, 0.05);
+  }
+  for (let i = 0; i < 70 * scale; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const sp = 8 + Math.random() * 14;
+    const v = new THREE.Vector3(Math.cos(a) * sp * scale, 1 + Math.random() * 3, Math.sin(a) * sp * scale);
+    const p = pos.clone(); p.y = 0.5;
+    spawnParticle(p, v, 0x8a8070, 2.2 + Math.random() * 1.2, 0.1, 0.9, 0.7, 2.6, 0.2);
+  }
+  for (let i = 0; i < 80 * scale; i++) {
+    const v = new THREE.Vector3(
+      (Math.random() - 0.5) * 10 * scale,
+      5 + Math.random() * 14 * scale,
+      (Math.random() - 0.5) * 10 * scale
+    );
+    const p = pos.clone();
+    p.x += (Math.random() - 0.5) * 2 * scale;
+    p.z += (Math.random() - 0.5) * 2 * scale;
+    spawnParticle(p, v, 0x252018, 4.5 + Math.random() * 3.5, 0.04, 2.0, 1.5, 5.5, 0.15);
+  }
+
+  explosions.push({ flash, fireballs, darkLayer, shock, light, age: 0, duration: 2.0, scale });
+  cameraShake = Math.max(cameraShake, 1.0 * scale);
+}
+
+function updateExplosions(dt) {
+  for (let i = explosions.length - 1; i >= 0; i--) {
+    const e = explosions[i];
+    e.age += dt;
+    const t = e.age / e.duration;
+    if (t >= 1) {
+      scene.remove(e.flash);
+      e.fireballs.forEach(f => scene.remove(f));
+      scene.remove(e.darkLayer);
+      if (e.shock) scene.remove(e.shock);
+      scene.remove(e.light);
+      explosions.splice(i, 1);
+      continue;
+    }
+    e.flash.scale.setScalar(1 + t * 8);
+    e.flash.material.opacity = Math.max(0, 1 - t * 6);
+    e.fireballs.forEach((fb, idx) => {
+      fb.scale.setScalar(1 + t * (10 + idx * 2));
+      fb.material.opacity = Math.max(0, 0.9 * (1 - t * 1.5));
+    });
+    e.darkLayer.scale.setScalar(1 + t * 16);
+    e.darkLayer.material.opacity = Math.max(0, 0.55 * (1 - t * 1.2));
+    if (e.shock) {
+      e.shock.scale.setScalar(1 + t * 30);
+      e.shock.material.opacity = Math.max(0, 0.95 * (1 - t * 2.6));
+    }
+    e.light.intensity = Math.max(0, 500 * e.scale * Math.pow(1 - t, 2.6));
+  }
+}
+
+let tankSmoke = false;
+let smokeTimer = 0;
+
+function explodeTank() {
+  if (tankDestroyed) return;
+  if (currentState !== STATE.IN_TANK) return;
+  tankDestroyed = true;
+
+  for (let i = 0; i < 7; i++) {
+    const local = new THREE.Vector3(
+      -30 + Math.random() * 60,
+      15 + Math.random() * 25,
+      -20 + Math.random() * 40
+    );
+    const world = local.clone().applyEuler(new THREE.Euler(0, tankState.rotY, 0)).multiplyScalar(TANK_SCALE);
+    world.add(new THREE.Vector3(tankState.x, TANK_LIFT, tankState.z));
+    setTimeout(() => createExplosion(world, 1.3), i * 180);
+  }
+  tankSmoke = true;
+  tank.traverse(o => {
+    if (o.isMesh) {
+      if (Array.isArray(o.material)) {
+        o.material = o.material.map(() => MAT.armorBurnt);
+      } else if (o.material !== MAT.glass && o.material !== MAT.lampGlass && o.material !== MAT.marking) {
+        o.material = MAT.armorBurnt;
+      }
+    }
+  });
+  setTimeout(() => {
+    if (currentState === STATE.IN_TANK) exitTank();
+    explodedEl.classList.add('show');
+  }, 1500);
+}
+
+function updateTankSmoke(dt) {
+  if (!tankSmoke) return;
+  smokeTimer += dt;
+  const interval = 0.05;
+  while (smokeTimer > interval) {
+    smokeTimer -= interval;
+    const local = new THREE.Vector3(
+      (Math.random() - 0.5) * 60,
+      20 + Math.random() * 25,
+      (Math.random() - 0.5) * 40
+    );
+    const world = local.clone().applyEuler(new THREE.Euler(0, tankState.rotY, 0)).multiplyScalar(TANK_SCALE);
+    world.add(new THREE.Vector3(tankState.x, TANK_LIFT, tankState.z));
+    const v = new THREE.Vector3((Math.random() - 0.5) * 3, 2 + Math.random() * 4, (Math.random() - 0.5) * 3);
+    spawnParticle(world, v, 0x1a1a1a, 3 + Math.random() * 2, 0.02, 1.5, 1.2, 4, 0.2);
+  }
+}
+
+const MAX_PARTICLES = 6000;
+const pPositions = new Float32Array(MAX_PARTICLES * 3);
+const pColors = new Float32Array(MAX_PARTICLES * 3);
+const pSizes = new Float32Array(MAX_PARTICLES);
+const pData = [];
+for (let i=0; i<MAX_PARTICLES; i++) {
+  pData.push({ life: 0, maxLife: 1, vel: new THREE.Vector3(), base: new THREE.Color(), grav: 1, startSize: 0.1, endSize: 0.1, fadeIn: 0.1 });
+  pSizes[i] = 0.1;
+}
+const pGeo = new THREE.BufferGeometry();
+pGeo.setAttribute('position', new THREE.BufferAttribute(pPositions, 3));
+pGeo.setAttribute('color', new THREE.BufferAttribute(pColors, 3));
+pGeo.setAttribute('size', new THREE.BufferAttribute(pSizes, 1));
+
+function makeParticleTex() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.35, 'rgba(255,255,255,0.65)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+const pointsMat = new THREE.ShaderMaterial({
+  uniforms: { uTex: { value: makeParticleTex() } },
+  vertexShader: `
+    attribute float size;
+    varying vec3 vColor;
+    void main() {
+      vColor = color;
+      vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+      gl_PointSize = size * 350.0 / -mvPos.z;
+      gl_Position = projectionMatrix * mvPos;
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D uTex;
+    varying vec3 vColor;
+    void main() {
+      vec4 t = texture2D(uTex, gl_PointCoord);
+      gl_FragColor = vec4(vColor * t.rgb, t.a);
+    }
+  `,
+  transparent: true,
+  vertexColors: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false
+});
+const points = new THREE.Points(pGeo, pointsMat);
+points.frustumCulled = false;
+scene.add(points);
+
+let pCursor = 0;
+function spawnParticle(pos, vel, color, life, grav=1, size=0.1, startSize, endSize, fadeIn=0.1) {
+  const i = pCursor;
+  pCursor = (pCursor + 1) % MAX_PARTICLES;
+  const d = pData[i];
+  d.life = life; d.maxLife = life;
+  d.vel.copy(vel);
+  d.base.set(color);
+  d.grav = grav;
+  d.startSize = startSize ?? size;
+  d.endSize = endSize ?? size;
+  d.fadeIn = fadeIn;
+  pPositions[i*3] = pos.x; pPositions[i*3+1] = pos.y; pPositions[i*3+2] = pos.z;
+  pColors[i*3] = d.base.r; pColors[i*3+1] = d.base.g; pColors[i*3+2] = d.base.b;
+  pSizes[i] = d.startSize;
+}
+function updateParticles(dt) {
+  for (let i=0; i<MAX_PARTICLES; i++) {
+    const d = pData[i];
+    if (d.life <= 0) {
+      pColors[i*3] = pColors[i*3+1] = pColors[i*3+2] = 0;
+      pSizes[i] = 0;
+      continue;
+    }
+    d.life -= dt;
+    const t = 1 - d.life / d.maxLife;
+    d.vel.y -= 9.81 * d.grav * dt;
+    d.vel.multiplyScalar(1 - 1.2 * dt);
+    pPositions[i*3] += d.vel.x * dt;
+    pPositions[i*3+1] += d.vel.y * dt;
+    pPositions[i*3+2] += d.vel.z * dt;
+    if (pPositions[i*3+1] < 0.05) { pPositions[i*3+1] = 0.05; d.vel.y *= -0.2; d.vel.x *= 0.7; d.vel.z *= 0.7; }
+    let alpha;
+    if (t < d.fadeIn) alpha = t / d.fadeIn;
+    else alpha = 1 - (t - d.fadeIn) / (1 - d.fadeIn);
+    alpha = Math.max(0, Math.min(1, alpha));
+    pSizes[i] = d.startSize + (d.endSize - d.startSize) * t;
+    const k = alpha * alpha;
+    pColors[i*3] = d.base.r * k;
+    pColors[i*3+1] = d.base.g * k;
+    pColors[i*3+2] = d.base.b * k;
+  }
+  pGeo.attributes.position.needsUpdate = true;
+  pGeo.attributes.color.needsUpdate = true;
+  pGeo.attributes.size.needsUpdate = true;
+}
+
+/* ============================================================
+   УПРАВЛЕНИЕ
+   ============================================================ */
+// *** МЕНЬШЕ ПОВОРОТЛИВОСТИ ***
+const MAX_SPEED = 16;        // было 22
+const MAX_REVERSE = 8;        // было 12
+const MAX_TURN = 0.35;        // было 1.0 — теперь танк разворачивается медленно
+const ACCEL_LERP = 2.2;       // было 4.5 — разгон плавный
+const TURN_LERP = 2.0;        // было 5.5 — реакция на руль медленная
+
+const clock = new THREE.Clock();
+let cameraShake = 0;
+const camShakeOffset = new THREE.Vector3();
+
+let vhsTime = 0;
+function updateVhsTime(dt) {
+  vhsTime += dt;
+  const h = Math.floor(vhsTime / 3600);
+  const m = Math.floor((vhsTime % 3600) / 60);
+  const s = Math.floor(vhsTime % 60);
+  const pad = n => String(n).padStart(2, '0');
+  vhsTimeEl.textContent = `${pad(h)}:${pad(m)}:${pad(s)}`;
+}
+
+function updateOnFoot(dt) {
+  const forward = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+  const right = new THREE.Vector3(Math.cos(player.yaw), 0, -Math.sin(player.yaw));
+  let mx = 0, mz = 0;
+  if (keys.w) mz += 1;
+  if (keys.s) mz -= 1;
+  if (keys.d) mx += 1;
+  if (keys.a) mx -= 1;
+  const sprinting = keys.shift && mz > 0;
+  const speed = sprinting ? player.sprintSpeed : player.walkSpeed;
+  const wish = new THREE.Vector3();
+  wish.addScaledVector(forward, mz);
+  wish.addScaledVector(right, mx);
+  if (wish.lengthSq() > 0) wish.normalize().multiplyScalar(speed);
+  const accel = player.onGround ? 16 : 4;
+  player.vel.x += (wish.x - player.vel.x) * Math.min(accel * dt, 1);
+  player.vel.z += (wish.z - player.vel.z) * Math.min(accel * dt, 1);
+  if (keys[' '] && player.onGround) { player.vel.y = 6.5; player.onGround = false; }
+  player.vel.y -= 22 * dt;
+  player.pos.x += player.vel.x * dt;
+  player.pos.z += player.vel.z * dt;
+  player.pos.y += player.vel.y * dt;
+  if (player.pos.y <= player.height) {
+    player.pos.y = player.height;
+    if (player.vel.y < 0) player.vel.y = 0;
+    player.onGround = true;
+  } else player.onGround = false;
+  player.pos.x = Math.max(-500, Math.min(500, player.pos.x));
+  player.pos.z = Math.max(-500, Math.min(500, player.pos.z));
+
+  if (!tankDestroyed) {
+    const dist = player.pos.distanceTo(new THREE.Vector3(tankState.x, 0, tankState.z));
+    promptEl.classList.toggle('show', dist < 8);
+  } else {
+    promptEl.classList.remove('show');
+  }
+}
+
+function updateInTank(dt) {
+  let targetFwd = 0;
+  if (keys.w) targetFwd = MAX_SPEED;
+  if (keys.s) targetFwd = -MAX_REVERSE;
+  let targetTurn = 0;
+  if (keys.a) targetTurn = MAX_TURN;
+  if (keys.d) targetTurn = -MAX_TURN;
+  if (tankDestroyed) { targetFwd = 0; targetTurn = 0; }
+
+  const lerpF = 1 - Math.exp(-ACCEL_LERP * dt);
+  const lerpT = 1 - Math.exp(-TURN_LERP * dt);
+  tankState.fwdSpeed += (targetFwd - tankState.fwdSpeed) * lerpF;
+  tankState.turnRate += (targetTurn - tankState.turnRate) * lerpT;
+  if (Math.abs(tankState.fwdSpeed) < 0.05) tankState.fwdSpeed = 0;
+  if (Math.abs(tankState.turnRate) < 0.005) tankState.turnRate = 0;
+
+  tankState.rotY += tankState.turnRate * dt;
+  tankState.x += Math.cos(tankState.rotY) * tankState.fwdSpeed * dt;
+  tankState.z -= Math.sin(tankState.rotY) * tankState.fwdSpeed * dt;
+
+  tank.position.set(tankState.x, TANK_LIFT, tankState.z);
+  tank.rotation.y = tankState.rotY;
+
+  const leftV = tankState.fwdSpeed + tankState.turnRate * 4;
+  const rightV = tankState.fwdSpeed - tankState.turnRate * 4;
+  for (const asm of trackAssemblies) {
+    const v = asm.side > 0 ? leftV : rightV;
+    asm.offset += (v * dt) / (asm.curveLength * TANK_SCALE);
+    asm.offset = ((asm.offset % 1) + 1) % 1;
+    updateTrackLinks(asm, asm.offset);
+  }
+  for (const w of rollingWheelsLeft) w.group.rotation.z -= (leftV / (w.radius * TANK_SCALE)) * dt;
+  for (const w of rollingWheelsRight) w.group.rotation.z -= (rightV / (w.radius * TANK_SCALE)) * dt;
+
+  // Башня — +π/2 потому что ствол по оси +X
+  const desiredLocal = player.yaw + Math.PI / 2 - tankState.rotY;
+  let diff = desiredLocal - tankState.turretYaw;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  // Скорость поворота башни уменьшена (было 8 → 3.5)
+  tankState.turretYaw += diff * Math.min(1, dt * 3.5);
+  turret.rotation.y = tankState.turretYaw;
+
+  tankState.gunPitch += (player.pitch - tankState.gunPitch) * Math.min(1, dt * 3);
+  gunMount.rotation.z = tankState.gunPitch;
+
+  if (tankState.recoilOffset > 0.01) {
+    gunMount.position.x = 20 - tankState.recoilOffset;
+    gunMount.rotation.z += tankState.recoilRot;
+    tankState.recoilOffset *= Math.max(0, 1 - dt * 4);
+    tankState.recoilRot *= Math.max(0, 1 - dt * 4);
+  } else {
+    gunMount.position.x = 20;
+    tankState.recoilOffset = 0;
+    tankState.recoilRot = 0;
+  }
+
+  /* ============================================================
+     КАМЕРА — ADS поднята выше (было +2.2, стало +4.2)
+     ============================================================ */
+  if (adsHeld) {
+    const backDir = new THREE.Vector3(Math.sin(player.yaw), 0, Math.cos(player.yaw));
+    camera.position.set(tankState.x, TANK_LIFT + 4.2, tankState.z);
+    camera.position.addScaledVector(backDir, 2.5);
+
+    camera.rotation.set(player.pitch, player.yaw, 0, 'YXZ');
+    const targetFov = 18;
+    camera.fov += (targetFov - camera.fov) * Math.min(dt * 8, 1);
+    camera.updateProjectionMatrix();
+    sightEl.classList.add('show');
+  } else {
+    const backDir = new THREE.Vector3(Math.sin(player.yaw), 0, Math.cos(player.yaw));
+    const camBack = 11;
+    const camUp = 6.5;
+    camera.position.set(tankState.x, TANK_LIFT + camUp, tankState.z);
+    camera.position.addScaledVector(backDir, camBack);
+    camera.position.y += camShakeOffset.y * 0.5;
+    camera.rotation.set(player.pitch, player.yaw, 0, 'YXZ');
+    const targetFov = 62;
+    camera.fov += (targetFov - camera.fov) * Math.min(dt * 8, 1);
+    camera.updateProjectionMatrix();
+    sightEl.classList.remove('show');
+  }
+}
+
+function updateCameraShake(dt) {
+  cameraShake = Math.max(0, cameraShake - dt * 3.5);
+  camShakeOffset.set(
+    (Math.random() - 0.5) * cameraShake * 0.3,
+    (Math.random() - 0.5) * cameraShake * 0.3,
+    (Math.random() - 0.5) * cameraShake * 0.3
+  );
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  updateCameraShake(dt);
+  updateVhsTime(dt);
+
+  if (currentState === STATE.ON_FOOT) {
+    updateOnFoot(dt);
+    const targetFov = adsHeld ? 45 : 65;
+    camera.fov += (targetFov - camera.fov) * Math.min(dt * 8, 1);
+    camera.updateProjectionMatrix();
+    camera.position.copy(player.pos);
+    camera.position.x += camShakeOffset.x * 0.3;
+    camera.position.y += camShakeOffset.y * 0.3;
+    camera.position.z += camShakeOffset.z * 0.3;
+    camera.rotation.set(player.pitch, player.yaw, 0, 'YXZ');
+    sightEl.classList.remove('show');
+  } else {
+    updateInTank(dt);
+  }
+
+  updateShells(dt);
+  updateExplosions(dt);
+  updateParticles(dt);
+  updateReload(dt);
+  updateTankSmoke(dt);
+
+  sun.target.position.set(player.pos.x, 0, player.pos.z);
+  sun.position.set(player.pos.x + 120, 180, player.pos.z + 130);
+  sun.target.updateMatrixWorld();
+
+  composer.render();
+}
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
+  bloomPass.setSize(window.innerWidth, window.innerHeight);
+});
+
+tank.position.set(0, TANK_LIFT, 0);
+tank.rotation.y = 0;
+player.pos.set(15, player.height, 15);
+player.yaw = -Math.PI * 0.75;
+
+const loader = document.getElementById('loader');
+requestAnimationFrame(() => {
+  loader.style.opacity = '0';
+  setTimeout(() => loader.remove(), 800);
+});
+
+animate();
+</script>
+</body>
+</html>

@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voxel Duster · Weapons Demo</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; overflow: hidden; height: 100%;
+    background: #000; color: #e0e0e0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Courier New', monospace;
+    user-select: none; -webkit-user-select: none;
+  }
+  canvas { display: block; }
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+
+  #crosshair {
+    position: absolute; left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: 26px; height: 26px;
+    transition: opacity 0.15s;
+  }
+  #crosshair::before, #crosshair::after {
+    content: ''; position: absolute; background: rgba(255,255,255,0.85);
+    box-shadow: 0 0 3px rgba(0,0,0,0.9);
+  }
+  #crosshair::before { left: 50%; top: 0; bottom: 0; width: 2px; transform: translateX(-50%); }
+  #crosshair::after  { top: 50%; left: 0; right: 0; height: 2px; transform: translateY(-50%); }
+  #crosshair.hit::before, #crosshair.hit::after { background: #ff3030; box-shadow: 0 0 8px #ff3030; }
+
+  #ammo {
+    position: absolute; right: 32px; bottom: 32px;
+    text-align: right; letter-spacing: 2px;
+    text-shadow: 0 0 6px rgba(0,0,0,0.9);
+  }
+  #ammo .mag { font-size: 42px; font-weight: 700; color: #fff; }
+  #ammo .res { font-size: 20px; color: #b0b8c0; }
+  #ammo .sep { font-size: 20px; color: #808890; margin: 0 4px; }
+
+  #weapon-name {
+    position: absolute; right: 32px; bottom: 92px;
+    font-size: 15px; letter-spacing: 3px;
+    color: #c8d0d8; text-transform: uppercase;
+    text-shadow: 0 0 6px rgba(0,0,0,0.9);
+  }
+
+  #view-mode {
+    position: absolute; left: 32px; top: 32px;
+    font-size: 13px; letter-spacing: 2px;
+    color: #c0c8d0; text-shadow: 0 0 6px rgba(0,0,0,0.9);
+    text-transform: uppercase;
+  }
+
+  #weapon-list {
+    position: absolute; left: 32px; top: 60px;
+    font-size: 12px; line-height: 1.7;
+    color: #8890a0; text-shadow: 0 0 6px rgba(0,0,0,0.9);
+  }
+  #weapon-list .active { color: #ffd060; font-weight: 700; }
+
+  #health {
+    position: absolute; left: 32px; bottom: 32px; width: 220px;
+  }
+  #health .label { font-size: 11px; color: #c0c8d0; letter-spacing: 3px; margin-bottom: 5px; }
+  #health .bar {
+    height: 9px; background: rgba(0,0,0,0.6);
+    border: 1px solid rgba(255,255,255,0.15);
+  }
+  #health .fill {
+    height: 100%; width: 100%;
+    background: linear-gradient(90deg, #d94040, #f07060);
+    transition: width 0.2s;
+  }
+
+  #hint {
+    position: absolute; left: 50%; bottom: 14px;
+    transform: translateX(-50%);
+    font-size: 11px; color: #a0a8b0; letter-spacing: 0.5px;
+    text-shadow: 0 0 6px rgba(0,0,0,0.9); text-align: center;
+    max-width: 90vw;
+  }
+
+  #state-msg {
+    position: absolute; left: 50%; top: 40%;
+    transform: translateX(-50%);
+    font-size: 20px; color: #f0c060; letter-spacing: 4px;
+    text-shadow: 0 0 10px rgba(0,0,0,0.9);
+    opacity: 0; transition: opacity 0.25s;
+    text-transform: uppercase;
+  }
+
+  #loading {
+    position: fixed; inset: 0; z-index: 100;
+    background: #0a0c0f; display: flex;
+    align-items: center; justify-content: center;
+    flex-direction: column; gap: 16px;
+    font-size: 14px; letter-spacing: 3px; color: #b0b8c0;
+    transition: opacity 0.6s;
+  }
+  #loading .spinner {
+    width: 40px; height: 40px;
+    border: 2px solid rgba(255,255,255,0.1);
+    border-top-color: #ffd060;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+  #loading.hide { opacity: 0; pointer-events: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <div>ЗАГРУЗКА ПОЛЯ</div>
+</div>
+
+<div id="hud">
+  <div id="crosshair"></div>
+  <div id="view-mode">1-е лицо</div>
+  <div id="weapon-list"></div>
+  <div id="weapon-name">—</div>
+  <div id="ammo">
+    <span class="mag">--</span>
+    <span class="sep">/</span>
+    <span class="res">--</span>
+  </div>
+  <div id="health">
+    <div class="label">ЗДОРОВЬЕ</div>
+    <div class="bar"><div class="fill" style="width:100%"></div></div>
+  </div>
+  <div id="state-msg"></div>
+  <div id="hint">Клик — захват мыши · WASD — движение · Shift — спринт · Ctrl — присед · Space — прыжок · 1-5 — оружие · Колесо — смена · V — вид · R — перезарядка · G — осмотр · ПКМ — прицел</div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { CharacterController, CHARACTER_CONFIG } from './player_modul.js';
+import { createField, FIELD_CONFIG } from './map_field_modul.js';
+import * as M4A1 from './m4a1_modul.js';
+import * as AK47 from './ak47_modul.js';
+import * as M134 from './m134_modul.js';
+import * as FT   from './flamethrower_modul.js';
+import * as RPG  from './rpg_modul.js';
+
+/* ══════════════════════════════════════════════════════════════════════════
+   GAME_CONFIG — все настраиваемые числа игры
+   ══════════════════════════════════════════════════════════════════════════ */
+const GAME_CONFIG = {
+  spawnX: 0,
+  spawnZ: 10,
+  worldLimit: 120,
+  groundSmooth: 14,
+  targetCount: 10,
+  obstacleCount: 8,
+  obstacleMinDist: 10,
+  obstacleMaxDist: 26,
+  targetMinDist: 16,
+  targetMaxDist: 34,
+  audioVolume: 0.5,
+  stateMessageDefaultTime: 1.0
+};
+
+/* ══════════════════════════════════════════════════════════════════════════
+   WEAPON_DEFS — единый реестр оружия.
+   Добавить новое оружие = добавить один объект сюда.
+   ══════════════════════════════════════════════════════════════════════════ */
+const WEAPON_DEFS = [
+  {
+    id: 'm4a1',
+    name: 'M4A1-S',
+    config: M4A1.M4A1_CONFIG,
+    Controller: M4A1.M4A1Controller,
+    createMaterials: M4A1.createM4A1Materials,
+    makeEffects: (scene, audio) =>
+      new M4A1.WeaponEffects(scene, { maxParticles: 900, maxDecals: 90, maxCasings: 45 }),
+    Audio: M4A1.WeaponAudio
+  },
+  {
+    id: 'ak47',
+    name: 'AK-47',
+    config: AK47.AK47_CONFIG,
+    Controller: AK47.AK47Controller,
+    createMaterials: AK47.createAKMaterials,
+    makeEffects: (scene, audio) =>
+      new AK47.WeaponEffects(scene, { maxParticles: 900, maxDecals: 90, maxCasings: 45 }),
+    Audio: AK47.WeaponAudio
+  },
+  {
+    id: 'minigun',
+    name: 'M134 Minigun',
+    config: M134.MINIGUN_CONFIG,
+    Controller: M134.MinigunController,
+    createMaterials: M134.createMinigunMaterials,
+    makeEffects: (scene, audio) =>
+      new M134.MinigunEffects(scene, audio, { maxParticles: 4500, maxDecals: 200, maxCasings: 120 }),
+    Audio: M134.WeaponAudio
+  },
+  {
+    id: 'flamethrower',
+    name: 'M9 Flamethrower',
+    config: FT.FLAMETHROWER_CONFIG,
+    Controller: FT.FlamethrowerController,
+    createMaterials: FT.createFlamethrowerMaterials,
+    makeEffects: (scene, audio) =>
+      new FT.FlamethrowerEffects(scene, audio, { maxParticles: 6000 }),
+    Audio: FT.WeaponAudio
+  },
+  {
+    id: 'rpg',
+    name: 'RPG-7',
+    config: RPG.RPG7_CONFIG,
+    Controller: RPG.RPG7Controller,
+    createMaterials: RPG.createRPGMaterials,
+    makeEffects: (scene, audio) =>
+      new RPG.RPGEffects(scene, audio, { maxParticles: 2000, hittables: GAME.hittables }),
+    Audio: RPG.WeaponAudio
+  }
+];
+
+/* ══════════════════════════════════════════════════════════════════════════
+   GAME — единственный корневой объект состояния
+   ══════════════════════════════════════════════════════════════════════════ */
+const GAME = {
+  renderer: null,
+  scene: null,
+  camera: null,
+  weaponScene: null,
+  weaponCamera: null,
+  field: null,
+  character: null,
+  playerAdapter: null,
+  weapons: [],
+  activeIndex: 0,
+  hittables: [],
+  colliders: [],
+  groundY: 0,
+  clock: null,
+  stateMessageTimer: 0,
+  health: 100,
+  ready: false
+};
+
+/* ══════════════════════════════════════════════════════════════════════════
+   RENDERER
+   ══════════════════════════════════════════════════════════════════════════ */
+GAME.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+GAME.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+GAME.renderer.setSize(window.innerWidth, window.innerHeight);
+GAME.renderer.shadowMap.enabled = true;
+GAME.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+GAME.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+GAME.renderer.toneMappingExposure = 1.15;
+GAME.renderer.outputColorSpace = THREE.SRGBColorSpace;
+GAME.renderer.autoClear = false;
+document.body.appendChild(GAME.renderer.domElement);
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SCENE / CAMERAS
+   ══════════════════════════════════════════════════════════════════════════ */
+GAME.scene = new THREE.Scene();
+GAME.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 900);
+
+GAME.weaponScene = new THREE.Scene();
+GAME.weaponCamera = new THREE.PerspectiveCamera(
+  55, window.innerWidth / window.innerHeight, 0.01, 30
+);
+
+/* ══════════════════════════════════════════════════════════════════════════
+   FIELD — карта, небо, дождь, свет
+   ══════════════════════════════════════════════════════════════════════════ */
+GAME.field = createField(GAME.scene, GAME.renderer);
+
+/* ══════════════════════════════════════════════════════════════════════════
+   WORLD OBJECTS — препятствия и мишени (hittables + colliders)
+   ══════════════════════════════════════════════════════════════════════════ */
+function spawnWorldObjects() {
+  const C = GAME_CONFIG;
+  const F = GAME.field;
+
+  const obstacleMat = new THREE.MeshStandardMaterial({
+    color: 0x6a4a30, roughness: 0.88, metalness: 0.04
+  });
+  const obstacleMat2 = new THREE.MeshStandardMaterial({
+    color: 0x4a3a28, roughness: 0.92, metalness: 0.04
+  });
+  const targetMat = new THREE.MeshStandardMaterial({
+    color: 0xc04020, roughness: 0.55, metalness: 0.35
+  });
+
+  for (let i = 0; i < C.obstacleCount; i++) {
+    const a = (i / C.obstacleCount) * Math.PI * 2 + 0.7;
+    const d = C.obstacleMinDist + Math.random() * (C.obstacleMaxDist - C.obstacleMinDist);
+    const x = Math.cos(a) * d;
+    const z = Math.sin(a) * d;
+    const gy = F.terrainHeight(x, z);
+
+    const w = 0.9 + Math.random() * 1.6;
+    const h = 1.0 + Math.random() * 1.6;
+    const dp = 0.9 + Math.random() * 1.6;
+
+    const geo = new THREE.BoxGeometry(w, h, dp);
+    const mesh = new THREE.Mesh(geo, i % 2 ? obstacleMat2 : obstacleMat);
+    mesh.position.set(x, gy + h / 2, z);
+    mesh.rotation.y = Math.random() * Math.PI;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    GAME.scene.add(mesh);
+
+    GAME.hittables.push(mesh);
+    GAME.colliders.push({
+      min: new THREE.Vector3(x - w / 2, gy, z - dp / 2),
+      max: new THREE.Vector3(x + w / 2, gy + h, z + dp / 2)
+    });
+  }
+
+  for (let i = 0; i < C.targetCount; i++) {
+    const a = (i / C.targetCount) * Math.PI * 2 + 2.1;
+    const d = C.targetMinDist + Math.random() * (C.targetMaxDist - C.targetMinDist);
+    const x = Math.cos(a) * d;
+    const z = Math.sin(a) * d;
+    const gy = F.terrainHeight(x, z);
+
+    const size = 0.55;
+    const geo = new THREE.BoxGeometry(size, size, size);
+    const mesh = new THREE.Mesh(geo, targetMat);
+    mesh.position.set(x, gy + size / 2, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.isPlate = true;
+    GAME.scene.add(mesh);
+
+    GAME.hittables.push(mesh);
+    GAME.colliders.push({
+      min: new THREE.Vector3(x - size / 2, gy, z - size / 2),
+      max: new THREE.Vector3(x + size / 2, gy + size, z + size / 2)
+    });
+  }
+}
+spawnWorldObjects();
+
+/* ══════════════════════════════════════════════════════════════════════════
+   CHARACTER — контроллер персонажа (игрок)
+   ══════════════════════════════════════════════════════════════════════════ */
+GAME.character = new CharacterController({
+  scene: GAME.scene,
+  renderer: GAME.renderer,
+  camera: GAME.camera,
+  colliders: GAME.colliders,
+  worldLimit: GAME_CONFIG.worldLimit,
+  spawnPosition: new THREE.Vector3(GAME_CONFIG.spawnX, 0, GAME_CONFIG.spawnZ),
+  onViewChange: (mode, oldMode) => onCharacterViewChange(mode, oldMode)
+});
+
+GAME.character.position.x = GAME_CONFIG.spawnX;
+GAME.character.position.z = GAME_CONFIG.spawnZ;
+GAME.groundY = GAME.field.terrainHeight(GAME_CONFIG.spawnX, GAME_CONFIG.spawnZ);
+GAME.character.position.y = GAME.groundY;
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PLAYER ADAPTER — мостик между CharacterController и оружейными модулями.
+   Weapon-контроллеры ожидают объект с полями pitch/yaw/pitchLimit/
+   planarSpeed/walkSpeed/onGround.  CharacterController использует другую
+   конвенцию yaw (camera.rotation.y = yaw + π), поэтому инвертируем yaw.
+   ══════════════════════════════════════════════════════════════════════════ */
+GAME.playerAdapter = {
+  get pitch() { return GAME.character.state.pitch; },
+  set pitch(v) {
+    const lim = 1.45;
+    GAME.character.state.pitch = Math.max(-lim, Math.min(lim, v));
+  },
+  get yaw() { return GAME.character.state.yaw + Math.PI; },
+  set yaw(v) { GAME.character.state.yaw = v - Math.PI; },
+  get pitchLimit() { return 1.45; },
+  get planarSpeed() { return GAME.character.state.speed; },
+  get walkSpeed() { return CHARACTER_CONFIG.MOVEMENT.walkSpeed; },
+  get onGround() { return GAME.character.state.grounded; }
+};
+
+/* ══════════════════════════════════════════════════════════════════════════
+   WEAPONS — инстанцирование всех оружейных контроллеров
+   ══════════════════════════════════════════════════════════════════════════ */
+function setupWeapons() {
+  for (let i = 0; i < WEAPON_DEFS.length; i++) {
+    const def = WEAPON_DEFS[i];
+
+    const materials = def.createMaterials();
+    const audio = new def.Audio(GAME_CONFIG.audioVolume);
+    audio.init();
+
+    const effects = def.makeEffects(GAME.scene, audio);
+
+    const w = {
+      def,
+      materials,
+      audio,
+      effects,
+      controller: null,
+      mag: def.config.MAG_SIZE ?? def.config.FUEL_MAX ?? 0,
+      res: def.config.RESERVE ?? def.config.FUEL_MAX ?? 0
+    };
+    GAME.weapons.push(w);
+
+    const controller = new def.Controller({
+      weaponScene: GAME.weaponScene,
+      weaponCamera: GAME.weaponCamera,
+      scene: GAME.scene,
+      camera: GAME.camera,
+      player: GAME.playerAdapter,
+      hittables: GAME.hittables,
+      colliders: GAME.colliders,
+      effects,
+      audio,
+      crosshairEl: document.getElementById('crosshair'),
+      onAmmoChange: (a, b) => {
+        w.mag = a;
+        w.res = b;
+        if (GAME.weapons[GAME.activeIndex] === w) refreshAmmoUI();
+      },
+      onStateMessage: (text, time) => showStateMessage(text, time),
+      onBloomStrength: () => { /* не используем постобработку */ }
+    });
+
+    controller.mount();
+    controller.drawWeapon();
+    controller.weaponRoot.visible = (i === GAME.activeIndex);
+
+    w.controller = controller;
+  }
+}
+setupWeapons();
+
+/* Активное по умолчанию — первое оружие.  Остальные уже скрыты. */
+GAME.weapons[0].controller.weaponRoot.visible = true;
+
+/* ══════════════════════════════════════════════════════════════════════════
+   HUD helpers
+   ══════════════════════════════════════════════════════════════════════════ */
+const hudEls = {
+  ammoMag: document.querySelector('#ammo .mag'),
+  ammoRes: document.querySelector('#ammo .res'),
+  weaponName: document.getElementById('weapon-name'),
+  viewMode: document.getElementById('view-mode'),
+  weaponList: document.getElementById('weapon-list'),
+  stateMsg: document.getElementById('state-msg'),
+  healthFill: document.querySelector('#health .fill'),
+  loading: document.getElementById('loading')
+};
+
+function refreshAmmoUI() {
+  const w = GAME.weapons[GAME.activeIndex];
+  if (!w) return;
+  hudEls.ammoMag.textContent = String(Math.round(w.mag));
+  hudEls.ammoRes.textContent = String(Math.round(w.res));
+}
+
+function updateWeaponNameUI() {
+  const w = GAME.weapons[GAME.activeIndex];
+  hudEls.weaponName.textContent = w ? w.def.name : '—';
+}
+
+function updateWeaponListUI() {
+  let html = '';
+  GAME.weapons.forEach((w, i) => {
+    const active = i === GAME.activeIndex ? 'active' : '';
+    html += `<div class="${active}">${i + 1}. ${w.def.name}</div>`;
+  });
+  hudEls.weaponList.innerHTML = html;
+}
+
+function updateViewModeUI(mode) {
+  hudEls.viewMode.textContent = mode === 'first' ? '1-е лицо' : '3-е лицо';
+}
+
+function updateHealthUI() {
+  hudEls.healthFill.style.width = GAME.health + '%';
+}
+
+let _stateMsgTimeout = null;
+function showStateMessage(text, time = GAME_CONFIG.stateMessageDefaultTime) {
+  hudEls.stateMsg.textContent = text;
+  hudEls.stateMsg.style.opacity = '1';
+  if (_stateMsgTimeout) clearTimeout(_stateMsgTimeout);
+  _stateMsgTimeout = setTimeout(() => {
+    hudEls.stateMsg.style.opacity = '0';
+    _stateMsgTimeout = null;
+  }, Math.max(200, time * 1000));
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   WEAPON SWITCHING
+   ══════════════════════════════════════════════════════════════════════════ */
+function setActiveWeapon(idx) {
+  if (idx < 0 || idx >= GAME.weapons.length) return;
+  if (idx === GAME.activeIndex) return;
+
+  const old = GAME.weapons[GAME.activeIndex];
+  if (old && old.controller.weaponRoot) {
+    old.controller.weaponRoot.visible = false;
+  }
+
+  GAME.activeIndex = idx;
+  const nw = GAME.weapons[idx];
+  if (nw) {
+    if (nw.controller.state === 'holstered') nw.controller.drawWeapon();
+    nw.controller.weaponRoot.visible = GAME.character.isFPS();
+  }
+
+  refreshAmmoUI();
+  updateWeaponNameUI();
+  updateWeaponListUI();
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   VIEW MODE SWITCH HANDLER
+   В FPS: рендерим weaponScene поверх main scene (видна только модель оружия).
+   В TPS: рендерим только main scene (персонаж виден, оружие скрыто).
+   ══════════════════════════════════════════════════════════════════════════ */
+function onCharacterViewChange(newMode, oldMode) {
+  const isFPS = newMode === 'first';
+  for (let i = 0; i < GAME.weapons.length; i++) {
+    const w = GAME.weapons[i];
+    w.controller.weaponRoot.visible = isFPS && (i === GAME.activeIndex);
+  }
+  updateViewModeUI(newMode);
+
+  // Возвращаем камеру в нормальный FOV при выходе из FPS
+  if (!isFPS) {
+    GAME.weaponCamera.fov = 55;
+    GAME.weaponCamera.updateProjectionMatrix();
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   INPUT
+   ══════════════════════════════════════════════════════════════════════════ */
+function activeWeapon() {
+  return GAME.weapons[GAME.activeIndex];
+}
+
+function dispatchWeapon(method, ...args) {
+  if (!GAME.character.isFPS()) return;
+  const w = activeWeapon();
+  if (w && w.controller && typeof w.controller[method] === 'function') {
+    w.controller[method](...args);
+  }
+}
+
+/* --- Pointer lock --- */
+GAME.renderer.domElement.addEventListener('click', () => {
+  if (!document.pointerLockElement) {
+    GAME.renderer.domElement.requestPointerLock();
+  }
+  for (const w of GAME.weapons) w.audio.init();
+});
+
+document.addEventListener('pointerlockchange', () => {
+  const locked = document.pointerLockElement === GAME.renderer.domElement;
+  GAME.character.setPointerLock(locked);
+  if (!locked) {
+    // Сбрасываем удерживаемые кнопки
+    GAME.character.onMouseUp(0);
+    GAME.character.onMouseUp(2);
+    const w = activeWeapon();
+    if (w) {
+      w.controller.onMouseUp && w.controller.onMouseUp(0);
+      w.controller.onMouseUp && w.controller.onMouseUp(2);
+    }
+  }
+});
+
+/* --- Keyboard --- */
+document.addEventListener('keydown', (e) => {
+  GAME.character.onKeyDown(e.code);
+  dispatchWeapon('onKeyDown', e.code);
+
+  // Weapon slots 1..N
+  if (e.code.startsWith('Digit')) {
+    const n = parseInt(e.code.slice(5), 10);
+    if (n >= 1 && n <= GAME.weapons.length) {
+      setActiveWeapon(n - 1);
+    }
+  }
+  if (e.code === 'Space') e.preventDefault();
+});
+
+document.addEventListener('keyup', (e) => {
+  GAME.character.onKeyUp(e.code);
+});
+
+/* --- Mouse --- */
+document.addEventListener('mousemove', (e) => {
+  if (!document.pointerLockElement) return;
+  GAME.character.onMouseMove(e.movementX, e.movementY);
+  dispatchWeapon('onMouseMove', e.movementX, e.movementY);
+});
+
+document.addEventListener('mousedown', (e) => {
+  GAME.character.onMouseDown(e.button);
+  dispatchWeapon('onMouseDown', e.button);
+});
+
+document.addEventListener('mouseup', (e) => {
+  GAME.character.onMouseUp(e.button);
+  dispatchWeapon('onMouseUp', e.button);
+});
+
+document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+/* --- Wheel --- */
+document.addEventListener('wheel', (e) => {
+  if (!document.pointerLockElement) return;
+  e.preventDefault();
+  const dir = e.deltaY > 0 ? 1 : -1;
+  const next = (GAME.activeIndex + dir + GAME.weapons.length) % GAME.weapons.length;
+  setActiveWeapon(next);
+}, { passive: false });
+
+/* --- Resize --- */
+window.addEventListener('resize', () => {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  GAME.camera.aspect = w / h;
+  GAME.camera.updateProjectionMatrix();
+  GAME.weaponCamera.aspect = w / h;
+  GAME.weaponCamera.updateProjectionMatrix();
+  GAME.renderer.setSize(w, h);
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+   GAME LOOP
+   ══════════════════════════════════════════════════════════════════════════ */
+GAME.clock = new THREE.Clock();
+
+function tick() {
+  requestAnimationFrame(tick);
+
+  const dt = Math.min(GAME.clock.getDelta(), 0.05);
+
+  /* 1. Персонаж — движение, анимации, камера */
+  GAME.character.update(dt);
+
+  /* 2. Привязка к рельефу: плавно следуем высоте земли */
+  const gh = GAME.field.terrainHeight(
+    GAME.character.position.x,
+    GAME.character.position.z
+  );
+  GAME.groundY += (gh - GAME.groundY) * Math.min(1, dt * GAME_CONFIG.groundSmooth);
+  GAME.character.position.y = GAME.groundY + GAME.character.state.baseY;
+
+  /* 3. Активное оружие — update (обновляет viewmodel, FOV, отдачу, эффекты) */
+  const w = GAME.weapons[GAME.activeIndex];
+  if (w) {
+    w.controller.update(dt);
+  }
+
+  /* 4. Эффекты всех оружий (частицы, гильзы, трассеры, дым) */
+  for (let i = 0; i < GAME.weapons.length; i++) {
+    const we = GAME.weapons[i];
+    if (we.effects && typeof we.effects.update === 'function') {
+      we.effects.update(dt);
+    }
+  }
+
+  /* 5. Поле — стриминг чанков, небо, дождь, ветер */
+  GAME.field.update(dt, GAME.camera, { playerPos: GAME.character.position });
+
+  /* 6. Отрисовка */
+  GAME.renderer.clear();
+
+  if (GAME.character.isFPS()) {
+    // FPS: сначала мир (персонаж скрыт самим контроллером), затем viewmodel
+    GAME.renderer.render(GAME.scene, GAME.camera);
+    GAME.renderer.clearDepth();
+    GAME.renderer.render(GAME.weaponScene, GAME.weaponCamera);
+  } else {
+    // TPS: только мир, модель оружия не рендерится
+    GAME.renderer.render(GAME.scene, GAME.camera);
+  }
+
+  /* 7. HUD */
+  updateHealthUI();
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BOOTSTRAP
+   ══════════════════════════════════════════════════════════════════════════ */
+updateWeaponNameUI();
+updateWeaponListUI();
+refreshAmmoUI();
+updateViewModeUI('first');
+updateHealthUI();
+
+/* Скрываем заставку когда первые чанки готовы */
+(function waitForWorld() {
+  if (GAME.field.terrain.isReady && GAME.field.terrain.pendingJobs === 0) {
+    hudEls.loading.classList.add('hide');
+    setTimeout(() => { hudEls.loading.style.display = 'none'; }, 800);
+    return;
+  }
+  requestAnimationFrame(waitForWorld);
+})();
+
+/* Показываем подсказку */
+setTimeout(() => showStateMessage('КЛИК — ЗАХВАТ МЫШИ', 2.5), 400);
+
+/* Старт цикла */
+tick();
+
+/* ══════════════════════════════════════════════════════════════════════════
+   КАК ДОБАВИТЬ НОВОЕ ОРУЖИЕ
+   ─────────────────────────────────────────────────────────────────────────
+   1. Импортировать модуль:  import * as NEW from './newweapon_modul.js';
+   2. Добавить один объект в массив WEAPON_DEFS:
+        {
+          id: 'newid',
+          name: 'Оружие · Модель',
+          config: NEW.NEWWEAPON_CONFIG,
+          Controller: NEW.NEWController,
+          createMaterials: NEW.createNewMaterials,
+          makeEffects: (scene, audio) => new NEW.NewEffects(scene, audio, { ... }),
+          Audio: NEW.WeaponAudio
+        }
+   3. Всё остальное — HUD, переключение клавишами 1..N, смена вида V,
+      прицеливание, эффекты, звуки — подхватится автоматически.
+   ══════════════════════════════════════════════════════════════════════════ */
+</script>
+</body>
+</html>

@@ -1,0 +1,1262 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3D автомобиль — симулятор езды</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #06070a; }
+  canvas { display: block; }
+  #hud {
+    position: fixed; left: 16px; bottom: 16px; z-index: 10;
+    color: #8fa0b5; font: 13px/1.7 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: rgba(8,11,16,.62); backdrop-filter: blur(10px);
+    padding: 12px 16px; border-radius: 12px;
+    border: 1px solid rgba(255,255,255,.08);
+    pointer-events: none; user-select: none;
+  }
+  #hud b { color: #e8eef6; font-weight: 600; letter-spacing: .3px; }
+  #hud span { color: #6f8098; }
+  #hud kbd {
+    display: inline-block; padding: 1px 6px; margin: 0 1px;
+    background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.12);
+    border-radius: 4px; font: 11px/1.4 ui-monospace, monospace; color: #c9d6e5;
+  }
+  #speedo {
+    position: fixed; right: 24px; bottom: 24px; z-index: 10;
+    color: #e8eef6; font: 700 42px/1 ui-monospace, "SF Mono", monospace;
+    text-shadow: 0 0 20px rgba(120,180,255,.35);
+    background: rgba(8,11,16,.62); backdrop-filter: blur(10px);
+    padding: 14px 22px; border-radius: 14px;
+    border: 1px solid rgba(255,255,255,.08);
+    pointer-events: none; user-select: none; min-width: 160px; text-align: right;
+  }
+  #speedo small { display: block; font: 500 12px/1.2 system-ui; color: #6f8098;
+    letter-spacing: 1.5px; margin-top: 4px; text-align: right; }
+  #indicators {
+    position: fixed; right: 24px; top: 24px; z-index: 10;
+    display: flex; gap: 10px; pointer-events: none; user-select: none;
+  }
+  .ind {
+    width: 46px; height: 46px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(8,11,16,.62); backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,.08);
+    color: #2c3441; font: 700 18px/1 system-ui;
+    transition: all .15s;
+  }
+  .ind.on { color: #4a9eff; border-color: rgba(74,158,255,.5);
+    box-shadow: 0 0 18px rgba(74,158,255,.35); }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <b>3D автомобиль · симулятор</b><br>
+  <span>
+    <kbd>W</kbd><kbd>S</kbd> газ/тормоз &nbsp; <kbd>A</kbd><kbd>D</kbd> руль &nbsp;
+    <kbd>Space</kbd> ручник<br>
+    <kbd>H</kbd> сигнал &nbsp; <kbd>G</kbd> фары &nbsp;
+    ЛКМ — камера &nbsp; Колесо — зум
+  </span>
+</div>
+
+<div id="speedo">
+  <span id="speedVal">0</span><small>КМ/Ч</small>
+</div>
+
+<div id="indicators">
+  <div class="ind" id="indLight">💡</div>
+  <div class="ind" id="indBrake">🛑</div>
+  <div class="ind" id="indHorn">📢</div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer }  from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass }      from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass }      from 'three/addons/postprocessing/OutputPass.js';
+
+/* ============================================================
+   1. РЕНДЕРЕР · СЦЕНА · КАМЕРА
+   ============================================================ */
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x070810);
+scene.fog = new THREE.Fog(0x070810, 40, 120);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 400);
+camera.position.set(-8, 3.5, 0);
+
+/* ============================================================
+   2. ОКРУЖЕНИЕ
+   ============================================================ */
+function buildEnvScene() {
+  const env = new THREE.Scene();
+  const c = document.createElement('canvas');
+  c.width = 8; c.height = 256;
+  const ctx = c.getContext('2d');
+  const g = ctx.createLinearGradient(0, 0, 0, 256);
+  g.addColorStop(0.00, '#ffffff');
+  g.addColorStop(0.38, '#cbd8e8');
+  g.addColorStop(0.50, '#6b7683');
+  g.addColorStop(1.00, '#101318');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 8, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  env.add(new THREE.Mesh(
+    new THREE.SphereGeometry(60, 32, 32),
+    new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide })
+  ));
+  const panel = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const addPanel = (w, h, pos, rot) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), panel);
+    m.position.set(...pos);
+    m.rotation.set(...rot);
+    env.add(m);
+  };
+  addPanel(30, 16, [0, 24, 0], [-Math.PI / 2, 0, 0]);
+  addPanel(20, 10, [-22, 8, 10], [0, Math.PI / 2, 0]);
+  addPanel(20, 10, [22, 8, -10], [0, -Math.PI / 2, 0]);
+  return env;
+}
+const pmrem = new THREE.PMREMGenerator(renderer);
+const envRT = pmrem.fromScene(buildEnvScene(), 0.02);
+scene.environment = envRT.texture;
+
+/* ============================================================
+   3. СВЕТ
+   ============================================================ */
+scene.add(new THREE.HemisphereLight(0x8ca8d8, 0x0a0c10, 0.55));
+
+const keyLight = new THREE.DirectionalLight(0xffffff, 2.2);
+keyLight.position.set(8, 12, 7);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.camera.near = 1;
+keyLight.shadow.camera.far = 60;
+keyLight.shadow.camera.left = -14;
+keyLight.shadow.camera.right = 14;
+keyLight.shadow.camera.top = 14;
+keyLight.shadow.camera.bottom = -14;
+keyLight.shadow.bias = -0.0005;
+keyLight.shadow.normalBias = 0.02;
+scene.add(keyLight);
+scene.add(keyLight.target);
+
+const fillLight = new THREE.DirectionalLight(0x6a86c8, 0.6);
+fillLight.position.set(-10, 5, -8);
+scene.add(fillLight);
+
+const rimLight = new THREE.DirectionalLight(0xffd2a0, 0.5);
+rimLight.position.set(-4, 3.5, 11);
+scene.add(rimLight);
+
+/* ============================================================
+   4. МАТЕРИАЛЫ
+   ============================================================ */
+const paintMat = new THREE.MeshPhysicalMaterial({
+  color: 0xb0121c, metalness: 0.68, roughness: 0.24,
+  clearcoat: 1.0, clearcoatRoughness: 0.04, envMapIntensity: 1.4
+});
+const glassMat = new THREE.MeshPhysicalMaterial({
+  color: 0x0e1620, metalness: 0.0, roughness: 0.02,
+  transparent: true, opacity: 0.72, envMapIntensity: 2.6,
+  side: THREE.DoubleSide, depthWrite: false
+});
+const chromeMat    = new THREE.MeshStandardMaterial({ color: 0xd8dde4, metalness: 1.0, roughness: 0.09, envMapIntensity: 1.6 });
+const blackPlastic = new THREE.MeshStandardMaterial({ color: 0x101114, metalness: 0.3, roughness: 0.6 });
+const rubberMat    = new THREE.MeshStandardMaterial({ color: 0x0e0f11, metalness: 0.0, roughness: 0.95 });
+const interiorDark = new THREE.MeshStandardMaterial({ color: 0x0c0d10, metalness: 0.15, roughness: 0.9 });
+const interiorMid  = new THREE.MeshStandardMaterial({ color: 0x1b1d22, metalness: 0.2, roughness: 0.75 });
+const seatMat      = new THREE.MeshStandardMaterial({ color: 0x17181c, metalness: 0.1, roughness: 0.78 });
+const tireMat      = new THREE.MeshStandardMaterial({ color: 0x141416, metalness: 0.0, roughness: 0.94, side: THREE.DoubleSide });
+const rimMat       = new THREE.MeshStandardMaterial({ color: 0xbcc2c9, metalness: 0.95, roughness: 0.20, envMapIntensity: 1.5, side: THREE.DoubleSide });
+const discMat      = new THREE.MeshStandardMaterial({ color: 0x4a4d52, metalness: 0.85, roughness: 0.45 });
+const caliperMat   = new THREE.MeshStandardMaterial({ color: 0xd02020, metalness: 0.5, roughness: 0.4 });
+
+const headlightLensMat = new THREE.MeshStandardMaterial({
+  color: 0xffffff, emissive: 0xbcd4ff, emissiveIntensity: 0.15,
+  metalness: 0.0, roughness: 0.15
+});
+const drlMat = new THREE.MeshStandardMaterial({
+  color: 0xffffff, emissive: 0xd4e4ff, emissiveIntensity: 0.4,
+  metalness: 0.0, roughness: 0.25
+});
+const taillightMat = new THREE.MeshStandardMaterial({
+  color: 0x2a0206, emissive: 0xff0a18, emissiveIntensity: 0.4,
+  metalness: 0.3, roughness: 0.3
+});
+const amberMat = new THREE.MeshStandardMaterial({
+  color: 0x3a1c00, emissive: 0xff8a00, emissiveIntensity: 0.3,
+  metalness: 0.1, roughness: 0.3
+});
+
+/* ============================================================
+   5. ХЕЛПЕРЫ
+   ============================================================ */
+function makeQuad(p1, p2, p3, p4, mat) {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+    ...p1, ...p2, ...p3, ...p1, ...p3, ...p4
+  ]), 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([
+    0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1
+  ]), 2));
+  geo.computeVertexNormals();
+  return new THREE.Mesh(geo, mat);
+}
+function makePillar(p1, p2, size, mat) {
+  const start = new THREE.Vector3(...p1);
+  const end = new THREE.Vector3(...p2);
+  const dir = new THREE.Vector3().subVectors(end, start);
+  const len = dir.length();
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(size, len, size), mat);
+  mesh.position.copy(start).lerp(end, 0.5);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+function addBox(parent, w, h, d, x, y, z, mat, rx = 0, ry = 0, rz = 0) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.position.set(x, y, z);
+  m.rotation.set(rx, ry, rz);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  parent.add(m);
+  return m;
+}
+
+/* ============================================================
+   6. ГАБАРИТЫ
+   ============================================================ */
+const WHEEL_X = 1.40;
+const WHEEL_R = 0.34;
+const ARCH_R  = 0.39;
+const FLOOR_Y = 0.18;
+const BELT_Y  = 0.96;
+const ROOF_Y  = 1.46;
+const COWL_X  = 0.65;
+const WSH_TOP_X = 0.05;
+const RROOF_X = -1.00;
+const RWS_BASE_X = -1.60;
+const CABIN_HB = 0.78;
+const CABIN_HR = 0.68;
+const WHEEL_Z = 0.79;
+
+/* ============================================================
+   7. КОРНЕВАЯ ГРУППА
+   ============================================================ */
+const carGroup = new THREE.Group();
+scene.add(carGroup);
+const carBody = new THREE.Group();
+carGroup.add(carBody);
+
+/* ============================================================
+   8. КУЗОВ
+   ============================================================ */
+function addArch(shape, cx, cy, r, yb) {
+  const dy = yb - cy;
+  const dx = Math.sqrt(r * r - dy * dy);
+  shape.absarc(cx, cy, r, Math.atan2(dy, -dx), Math.atan2(dy, dx), true);
+}
+const bodyShape = new THREE.Shape();
+bodyShape.moveTo( 2.10, FLOOR_Y);
+bodyShape.lineTo( 2.32, 0.32);
+bodyShape.lineTo( 2.40, 0.52);
+bodyShape.lineTo( 2.36, 0.72);
+bodyShape.lineTo( 2.22, 0.86);
+bodyShape.lineTo( 1.55, 0.93);
+bodyShape.lineTo( COWL_X, BELT_Y);
+bodyShape.lineTo( RWS_BASE_X, BELT_Y);
+bodyShape.lineTo(-2.05, 0.94);
+bodyShape.lineTo(-2.26, 0.88);
+bodyShape.lineTo(-2.38, 0.72);
+bodyShape.lineTo(-2.42, 0.50);
+bodyShape.lineTo(-2.36, 0.30);
+bodyShape.lineTo(-2.16, FLOOR_Y);
+addArch(bodyShape, -WHEEL_X, WHEEL_R, ARCH_R, FLOOR_Y);
+const archDx = Math.sqrt(ARCH_R * ARCH_R - Math.pow(WHEEL_R - FLOOR_Y, 2));
+bodyShape.lineTo(WHEEL_X - archDx, FLOOR_Y);
+addArch(bodyShape, WHEEL_X, WHEEL_R, ARCH_R, FLOOR_Y);
+bodyShape.lineTo(2.10, FLOOR_Y);
+
+const BODY_DEPTH = 1.66;
+const bodyGeo = new THREE.ExtrudeGeometry(bodyShape, {
+  depth: BODY_DEPTH, bevelEnabled: true,
+  bevelThickness: 0.03, bevelSize: 0.03, bevelSegments: 4,
+  curveSegments: 24, steps: 1
+});
+bodyGeo.translate(0, 0, -BODY_DEPTH / 2);
+const body = new THREE.Mesh(bodyGeo, paintMat);
+body.castShadow = true;
+body.receiveShadow = true;
+carBody.add(body);
+
+const innerShell = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.60, 1.50), interiorDark);
+innerShell.position.set(0, 0.50, 0);
+innerShell.castShadow = true;
+carBody.add(innerShell);
+
+/* ============================================================
+   9. КАБИНА
+   ============================================================ */
+const cabinGroup = new THREE.Group();
+carBody.add(cabinGroup);
+
+const roofLen = WSH_TOP_X - RROOF_X;
+const roofMesh = new THREE.Mesh(
+  new THREE.BoxGeometry(roofLen + 0.14, 0.05, CABIN_HR * 2 + 0.06),
+  paintMat
+);
+roofMesh.position.set((WSH_TOP_X + RROOF_X) / 2, ROOF_Y + 0.025, 0);
+roofMesh.castShadow = true;
+roofMesh.receiveShadow = true;
+cabinGroup.add(roofMesh);
+
+for (const s of [1, -1]) {
+  addBox(cabinGroup, roofLen + 0.14, 0.014, 0.018,
+    (WSH_TOP_X + RROOF_X) / 2, ROOF_Y + 0.002, s * (CABIN_HR + 0.028), chromeMat);
+}
+for (const s of [1, -1]) {
+  cabinGroup.add(makePillar([COWL_X, BELT_Y - 0.03, s * CABIN_HB], [WSH_TOP_X, ROOF_Y + 0.02, s * CABIN_HR], 0.095, paintMat));
+  cabinGroup.add(makePillar([-0.40, BELT_Y - 0.03, s * (CABIN_HB + 0.005)], [-0.40, ROOF_Y + 0.02, s * (CABIN_HR + 0.005)], 0.075, blackPlastic));
+  cabinGroup.add(makePillar([RWS_BASE_X, BELT_Y - 0.03, s * CABIN_HB], [RROOF_X, ROOF_Y + 0.02, s * CABIN_HR], 0.125, paintMat));
+  addBox(cabinGroup, 2.10, 0.022, 0.022, -0.47, BELT_Y + 0.005, s * (CABIN_HB + 0.012), chromeMat);
+}
+cabinGroup.add(makeQuad(
+  [COWL_X, BELT_Y + 0.02, CABIN_HB - 0.02],
+  [WSH_TOP_X, ROOF_Y - 0.02, CABIN_HR - 0.02],
+  [WSH_TOP_X, ROOF_Y - 0.02, -CABIN_HR + 0.02],
+  [COWL_X, BELT_Y + 0.02, -CABIN_HB + 0.02],
+  glassMat
+));
+cabinGroup.add(makeQuad(
+  [RROOF_X, ROOF_Y - 0.02, CABIN_HR - 0.02],
+  [RWS_BASE_X, BELT_Y + 0.02, CABIN_HB - 0.02],
+  [RWS_BASE_X, BELT_Y + 0.02, -CABIN_HB + 0.02],
+  [RROOF_X, ROOF_Y - 0.02, -CABIN_HR + 0.02],
+  glassMat
+));
+
+function makeSideWindow(pts) {
+  const shape = new THREE.Shape();
+  shape.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i][0], pts[i][1]);
+  shape.closePath();
+  return new THREE.ShapeGeometry(shape);
+}
+const frontWinGeo = makeSideWindow([[0.55, 0.99], [0.13, 1.41], [-0.34, 1.41], [-0.34, 0.99]]);
+const rearWinGeo  = makeSideWindow([[-0.45, 0.99], [-0.45, 1.41], [-1.02, 1.41], [-1.52, 0.99]]);
+for (const s of [1, -1]) {
+  const fw = new THREE.Mesh(frontWinGeo, glassMat);
+  fw.position.z = s * (CABIN_HB - 0.045);
+  cabinGroup.add(fw);
+  const rw = new THREE.Mesh(rearWinGeo, glassMat);
+  rw.position.z = s * (CABIN_HB - 0.045);
+  cabinGroup.add(rw);
+}
+
+/* ============================================================
+   10. САЛОН
+   ============================================================ */
+const interior = new THREE.Group();
+carBody.add(interior);
+
+addBox(interior, 2.20, 0.03, 1.56, -0.45, 0.95, 0, interiorDark);
+addBox(interior, 0.36, 0.16, 1.52, 0.42, 1.03, 0, interiorMid);
+addBox(interior, 0.32, 0.04, 1.46, 0.40, 1.125, 0, interiorDark);
+addBox(interior, 0.22, 0.07, 0.36, 0.28, 1.14, 0.38, interiorDark, 0, 0, 0.12);
+addBox(interior, 0.62, 0.12, 0.24, 0.00, 0.99, 0, interiorMid);
+addBox(interior, 0.20, 0.05, 0.16, 0.10, 1.06, 0, blackPlastic);
+
+const lever = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.018, 0.14, 12), chromeMat);
+lever.position.set(0.02, 1.11, -0.02);
+lever.rotation.z = -0.2;
+interior.add(lever);
+
+const steering = new THREE.Group();
+steering.add(new THREE.Mesh(new THREE.TorusGeometry(0.155, 0.021, 12, 40), interiorDark));
+for (let i = 0; i < 3; i++) {
+  const a = i * Math.PI * 2 / 3 + Math.PI / 2;
+  const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.15, 0.02), interiorMid);
+  spoke.position.set(Math.cos(a) * 0.075, Math.sin(a) * 0.075, 0);
+  spoke.rotation.z = a - Math.PI / 2;
+  steering.add(spoke);
+}
+const shub = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.04, 16), interiorMid);
+shub.rotation.x = Math.PI / 2;
+steering.add(shub);
+steering.position.set(0.36, 1.075, 0.38);
+steering.rotation.y = Math.PI / 2;
+steering.rotation.z = 0.38;
+interior.add(steering);
+
+const column = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.26, 12), interiorDark);
+column.position.set(0.48, 1.02, 0.38);
+column.rotation.z = Math.PI / 2 - 0.38;
+interior.add(column);
+
+function makeSeat(x, z) {
+  const seat = new THREE.Group();
+  addBox(seat, 0.46, 0.10, 0.44, 0, 1.00, 0, seatMat);
+  addBox(seat, 0.46, 0.07, 0.06, 0, 1.05,  0.20, seatMat);
+  addBox(seat, 0.46, 0.07, 0.06, 0, 1.05, -0.20, seatMat);
+  const back = addBox(seat, 0.12, 0.40, 0.42, -0.21, 1.17, 0, seatMat);
+  back.rotation.z = -0.10;
+  addBox(seat, 0.11, 0.34, 0.055, -0.20, 1.17,  0.185, seatMat);
+  addBox(seat, 0.11, 0.34, 0.055, -0.20, 1.17, -0.185, seatMat);
+  const hr = addBox(seat, 0.11, 0.14, 0.20, -0.26, 1.37, 0, seatMat);
+  hr.rotation.z = -0.10;
+  addBox(seat, 0.02, 0.06, 0.02, -0.24, 1.29,  0.055, chromeMat);
+  addBox(seat, 0.02, 0.06, 0.02, -0.24, 1.29, -0.055, chromeMat);
+  seat.position.set(x, 0, z);
+  return seat;
+}
+interior.add(makeSeat(0.02,  0.40));
+interior.add(makeSeat(0.02, -0.40));
+
+const rearSeat = new THREE.Group();
+addBox(rearSeat, 0.48, 0.10, 1.28, -1.02, 1.00, 0, seatMat);
+addBox(rearSeat, 0.48, 0.07, 0.05, -1.02, 1.05,  0.60, seatMat);
+addBox(rearSeat, 0.48, 0.07, 0.05, -1.02, 1.05, -0.60, seatMat);
+const rBack = addBox(rearSeat, 0.12, 0.38, 1.26, -1.22, 1.16, 0, seatMat);
+rBack.rotation.z = -0.12;
+for (const z of [0.38, -0.38]) {
+  const h = addBox(rearSeat, 0.11, 0.13, 0.22, -1.28, 1.35, z, seatMat);
+  h.rotation.z = -0.12;
+  addBox(rearSeat, 0.02, 0.055, 0.02, -1.26, 1.28, z + 0.06, chromeMat);
+  addBox(rearSeat, 0.02, 0.055, 0.02, -1.26, 1.28, z - 0.06, chromeMat);
+}
+interior.add(rearSeat);
+addBox(interior, 0.24, 0.025, 1.36, -1.50, 1.01, 0, interiorDark);
+
+/* ============================================================
+   11. ДЕТАЛИ КУЗОВА
+   ============================================================ */
+const details = new THREE.Group();
+carBody.add(details);
+
+function createHeadlight(sign) {
+  const g = new THREE.Group();
+  const z = sign * 0.58;
+  const housing = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.24, 0.40), blackPlastic);
+  housing.position.set(2.30, 0.72, z);
+  housing.rotation.y = sign * 0.08;
+  g.add(housing);
+  const bezel = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.26, 0.42), chromeMat);
+  bezel.position.set(2.355, 0.72, z);
+  bezel.rotation.y = sign * 0.08;
+  g.add(bezel);
+  const projBody = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.068, 0.055, 26), chromeMat);
+  projBody.rotation.z = Math.PI / 2;
+  projBody.position.set(2.365, 0.695, z - sign * 0.06);
+  g.add(projBody);
+  const projLens = new THREE.Mesh(new THREE.CircleGeometry(0.058, 26), headlightLensMat);
+  projLens.rotation.y = Math.PI / 2;
+  projLens.position.set(2.393, 0.695, z - sign * 0.06);
+  g.add(projLens);
+  const refl = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.046, 0.040, 22), chromeMat);
+  refl.rotation.z = Math.PI / 2;
+  refl.position.set(2.365, 0.79, z + sign * 0.07);
+  g.add(refl);
+  const reflLens = new THREE.Mesh(new THREE.CircleGeometry(0.038, 22), headlightLensMat);
+  reflLens.rotation.y = Math.PI / 2;
+  reflLens.position.set(2.386, 0.79, z + sign * 0.07);
+  g.add(reflLens);
+  const drl = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.024, 0.34), drlMat);
+  drl.position.set(2.372, 0.845, z);
+  drl.rotation.y = sign * 0.08;
+  drl.rotation.x = -sign * 0.05;
+  g.add(drl);
+  const turn = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.020, 0.14), amberMat);
+  turn.position.set(2.372, 0.615, z + sign * 0.11);
+  turn.rotation.y = sign * 0.08;
+  g.add(turn);
+  return g;
+}
+details.add(createHeadlight(1));
+details.add(createHeadlight(-1));
+
+function createTaillight(sign) {
+  const g = new THREE.Group();
+  const z = sign * 0.58;
+  const housing = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.16, 0.42), blackPlastic);
+  housing.position.set(-2.32, 0.78, z);
+  housing.rotation.y = -sign * 0.06;
+  g.add(housing);
+  const bezel = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.18, 0.44), chromeMat);
+  bezel.position.set(-2.352, 0.78, z);
+  bezel.rotation.y = -sign * 0.06;
+  g.add(bezel);
+  const light = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.085, 0.36), taillightMat);
+  light.position.set(-2.368, 0.79, z);
+  light.rotation.y = -sign * 0.06;
+  g.add(light);
+  const amber = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.030, 0.12), amberMat);
+  amber.position.set(-2.365, 0.685, z - sign * 0.10);
+  g.add(amber);
+  return g;
+}
+details.add(createTaillight(1));
+details.add(createTaillight(-1));
+
+addBox(details, 0.08, 0.26, 0.94, 2.31, 0.50, 0, blackPlastic);
+for (let i = 0; i < 4; i++) addBox(details, 0.03, 0.016, 0.92, 2.345, 0.40 + i * 0.065, 0, chromeMat);
+addBox(details, 0.025, 0.28, 0.98, 2.358, 0.50, 0, chromeMat);
+const badge = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.018, 24), chromeMat);
+badge.rotation.z = Math.PI / 2;
+badge.position.set(2.372, 0.50, 0);
+details.add(badge);
+
+addBox(details, 0.20, 0.14, 1.08, 2.24, 0.30, 0, blackPlastic);
+addBox(details, 0.02, 0.012, 1.12, 2.345, 0.30, 0, chromeMat);
+
+const splitter = addBox(details, 0.34, 0.045, 1.66, 2.14, 0.175, 0, blackPlastic);
+splitter.rotation.z = 0.02;
+
+for (const s of [1, -1]) addBox(details, 1.92, 0.06, 0.10, -0.05, 0.205, s * 0.875, blackPlastic);
+
+addBox(details, 0.28, 0.14, 1.42, -2.16, 0.24, 0, blackPlastic);
+for (const z of [-0.40, -0.13, 0.13, 0.40]) addBox(details, 0.26, 0.13, 0.02, -2.16, 0.24, z, rubberMat);
+
+for (const s of [1, -1]) {
+  const outer = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.14, 22), chromeMat);
+  outer.rotation.z = Math.PI / 2;
+  outer.position.set(-2.31, 0.30, s * 0.52);
+  outer.castShadow = true;
+  details.add(outer);
+  const inner = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.15, 20), blackPlastic);
+  inner.rotation.z = Math.PI / 2;
+  inner.position.set(-2.315, 0.30, s * 0.52);
+  details.add(inner);
+}
+
+for (const s of [1, -1]) {
+  const arm = addBox(details, 0.05, 0.045, 0.14, 0.61, 0.995, s * 0.86, blackPlastic);
+  arm.rotation.z = 0.06;
+  const mirror = addBox(details, 0.14, 0.09, 0.11, 0.545, 1.02, s * 0.955, paintMat);
+  mirror.rotation.z = -0.12;
+  mirror.rotation.y = -s * 0.10;
+  addBox(details, 0.014, 0.076, 0.094, 0.61, 1.02, s * 0.955, glassMat);
+  addBox(details, 0.10, 0.012, 0.014, 0.525, 1.058, s * 0.988, amberMat);
+}
+for (const s of [1, -1]) {
+  addBox(details, 0.16, 0.030, 0.030, 0.15, 0.845, s * 0.875, chromeMat);
+  addBox(details, 0.16, 0.030, 0.030, -0.78, 0.845, s * 0.875, chromeMat);
+  addBox(details, 0.010, 0.68, 0.006,  0.62, 0.60, s * 0.878, rubberMat);
+  addBox(details, 0.010, 0.68, 0.006, -1.18, 0.60, s * 0.878, rubberMat);
+}
+const fuelCap = new THREE.Mesh(new THREE.CylinderGeometry(0.072, 0.072, 0.010, 24), chromeMat);
+fuelCap.rotation.x = Math.PI / 2;
+fuelCap.position.set(-1.35, 0.72, -0.885);
+details.add(fuelCap);
+
+const spoiler = addBox(details, 0.28, 0.038, 1.46, -2.10, 1.005, 0, paintMat);
+spoiler.rotation.z = 0.09;
+
+const fin = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.10, 14), paintMat);
+fin.position.set(-0.82, ROOF_Y + 0.075, 0);
+fin.rotation.z = 0.30;
+fin.castShadow = true;
+details.add(fin);
+
+for (const z of [0.34, -0.28]) {
+  const wiper = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.010, 0.40), blackPlastic);
+  wiper.position.set(0.62, 0.985, z);
+  wiper.rotation.x = 0.10;
+  details.add(wiper);
+}
+for (const s of [1, -1]) {
+  addBox(details, 2.06, 0.020, 0.014, -0.47, BELT_Y + 0.010, s * 0.79, chromeMat);
+}
+
+/* ============================================================
+   12. КОЛЁСА
+   ============================================================ */
+function createWheelSpinning() {
+  const g = new THREE.Group();
+  const R = WHEEL_R;
+  const rimR = 0.225;
+  const hw = 0.115;
+
+  const prof = [
+    new THREE.Vector2(rimR + 0.004, -hw),
+    new THREE.Vector2(R - 0.055, -hw),
+    new THREE.Vector2(R - 0.014, -hw + 0.030),
+    new THREE.Vector2(R,          -hw + 0.062),
+    new THREE.Vector2(R,           hw - 0.062),
+    new THREE.Vector2(R - 0.014,   hw - 0.030),
+    new THREE.Vector2(R - 0.055,   hw),
+    new THREE.Vector2(rimR + 0.004, hw)
+  ];
+  const tireGeo = new THREE.LatheGeometry(prof, 60);
+  tireGeo.rotateX(Math.PI / 2);
+  const tire = new THREE.Mesh(tireGeo, tireMat);
+  tire.castShadow = true;
+  tire.receiveShadow = true;
+  g.add(tire);
+
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.185, 0.185, 0.018, 40), discMat);
+  disc.rotation.x = Math.PI / 2;
+  disc.position.z = 0.012;
+  g.add(disc);
+
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(rimR, rimR, hw * 2, 48, 1, true), rimMat);
+  barrel.rotation.x = Math.PI / 2;
+  barrel.castShadow = true;
+  g.add(barrel);
+
+  const spokeGeo = new THREE.BoxGeometry(0.055, rimR - 0.040, 0.046);
+  for (let i = 0; i < 5; i++) {
+    const a = i * Math.PI * 2 / 5;
+    const r = (rimR - 0.040) / 2 + 0.028;
+    const s = new THREE.Mesh(spokeGeo, rimMat);
+    s.position.set(Math.cos(a) * r, Math.sin(a) * r, hw - 0.080);
+    s.rotation.z = a - Math.PI / 2;
+    s.castShadow = true;
+    g.add(s);
+  }
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.078, 0.078, 0.062, 28), rimMat);
+  hub.rotation.x = Math.PI / 2;
+  hub.position.z = hw - 0.080;
+  hub.castShadow = true;
+  g.add(hub);
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.014, 20), blackPlastic);
+  cap.rotation.x = Math.PI / 2;
+  cap.position.z = hw - 0.048;
+  g.add(cap);
+  return g;
+}
+
+const wheelRigs = [];
+[[ WHEEL_X,  WHEEL_Z, true], [ WHEEL_X, -WHEEL_Z, true],
+ [-WHEEL_X,  WHEEL_Z, false], [-WHEEL_X, -WHEEL_Z, false]].forEach(([x, z, isFront]) => {
+  const pivot = new THREE.Group();
+  pivot.position.set(x, WHEEL_R, z);
+
+  const spinner = new THREE.Group();
+  const flip = new THREE.Group();
+  flip.rotation.y = (z < 0) ? Math.PI : 0;
+  spinner.add(flip);
+  flip.add(createWheelSpinning());
+  pivot.add(spinner);
+
+  const cal = new THREE.Mesh(new THREE.BoxGeometry(0.062, 0.122, 0.052), caliperMat);
+  cal.position.set(0, 0.16, (z < 0) ? -0.022 : 0.022);
+  cal.castShadow = true;
+  pivot.add(cal);
+
+  carGroup.add(pivot);
+  wheelRigs.push({ pivot, spinner, isFront, localX: x, localZ: z });
+});
+
+/* ============================================================
+   13. СИСТЕМА ЧАСТИЦ — мягкий туман / дым
+   ============================================================ */
+const PCOUNT = 900;
+const pPos     = new Float32Array(PCOUNT * 3);
+const pVel     = new Float32Array(PCOUNT * 3);
+const pCol     = new Float32Array(PCOUNT * 3);
+const pLife    = new Float32Array(PCOUNT);
+const pMaxLife = new Float32Array(PCOUNT);
+const pBase    = new Float32Array(PCOUNT);   // базовый размер
+const pSize    = new Float32Array(PCOUNT);
+const pAlpha   = new Float32Array(PCOUNT);
+const pBaseAlpha = new Float32Array(PCOUNT); // базовая прозрачность
+let pHead = 0;
+
+const pGeo = new THREE.BufferGeometry();
+pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3).setUsage(THREE.DynamicDrawUsage));
+pGeo.setAttribute('aColor',   new THREE.BufferAttribute(pCol, 3).setUsage(THREE.DynamicDrawUsage));
+pGeo.setAttribute('aSize',    new THREE.BufferAttribute(pSize, 1).setUsage(THREE.DynamicDrawUsage));
+pGeo.setAttribute('aAlpha',   new THREE.BufferAttribute(pAlpha, 1).setUsage(THREE.DynamicDrawUsage));
+pGeo.setDrawRange(0, PCOUNT);
+
+/** Очень мягкая, почти размытая радиальная текстура — чтобы частицы
+ *  выглядели как облачко тумана, а не как чёткие точки/искры. */
+function makeSmokeTexture() {
+  const size = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+  // Плавный, очень «дымный» профиль: центр не пересвечен, края максимально размыты
+  g.addColorStop(0.00, 'rgba(255,255,255,0.85)');
+  g.addColorStop(0.20, 'rgba(255,255,255,0.55)');
+  g.addColorStop(0.45, 'rgba(255,255,255,0.28)');
+  g.addColorStop(0.70, 'rgba(255,255,255,0.10)');
+  g.addColorStop(0.88, 'rgba(255,255,255,0.025)');
+  g.addColorStop(1.00, 'rgba(255,255,255,0.0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+
+  // лёгкий шум, чтобы не было видно однородного круга
+  const img = ctx.getImageData(0, 0, size, size);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const n = (Math.random() - 0.5) * 22;
+    d[i]   = Math.max(0, Math.min(255, d[i]   + n));
+    d[i+1] = Math.max(0, Math.min(255, d[i+1] + n));
+    d[i+2] = Math.max(0, Math.min(255, d[i+2] + n));
+  }
+  ctx.putImageData(img, 0, 0);
+
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.minFilter = THREE.LinearFilter;
+  t.magFilter = THREE.LinearFilter;
+  return t;
+}
+
+const pMat = new THREE.ShaderMaterial({
+  uniforms: { uTex: { value: makeSmokeTexture() } },
+  vertexShader: `
+    attribute vec3 aColor;
+    attribute float aSize;
+    attribute float aAlpha;
+    varying vec3 vColor;
+    varying float vAlpha;
+    void main() {
+      vColor = aColor;
+      vAlpha = aAlpha;
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      gl_Position = projectionMatrix * mv;
+      // размер частицы масштабируется обратно пропорционально расстоянию
+      gl_PointSize = clamp(aSize * (260.0 / -mv.z), 1.0, 260.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D uTex;
+    varying vec3 vColor;
+    varying float vAlpha;
+    void main() {
+      vec4 t = texture2D(uTex, gl_PointCoord);
+      float a = t.a * vAlpha;
+      if (a < 0.004) discard;               // отбрасываем почти невидимые пиксели
+      gl_FragColor = vec4(vColor * t.rgb, a);
+    }
+  `,
+  transparent: true,
+  depthWrite: false,
+  blending: THREE.NormalBlending
+});
+
+const pPoints = new THREE.Points(pGeo, pMat);
+pPoints.frustumCulled = false;
+scene.add(pPoints);
+
+/**
+ * Создать частицу.
+ * baseAlpha — максимальная непрозрачность за всю жизнь (низкая = туман, высокая = дым).
+ */
+function emitParticle(px, py, pz, vx, vy, vz, life, size, color, baseAlpha) {
+  const i = pHead;
+  pHead = (pHead + 1) % PCOUNT;
+
+  pPos[i*3+0] = px; pPos[i*3+1] = py; pPos[i*3+2] = pz;
+  pVel[i*3+0] = vx; pVel[i*3+1] = vy; pVel[i*3+2] = vz;
+  pCol[i*3+0] = color.r; pCol[i*3+1] = color.g; pCol[i*3+2] = color.b;
+  pLife[i] = life;
+  pMaxLife[i] = life;
+  pBase[i] = size;
+  pSize[i] = size * 0.55;      // стартует маленькой — «распускается» в облачко
+  pBaseAlpha[i] = baseAlpha;
+  pAlpha[i] = 0;
+}
+
+// приглушённые, «пыльные» цвета — не контрастируют с фоном
+const SMOKE_COLOR = new THREE.Color(0x9aa0a8);
+const DUST_COLOR  = new THREE.Color(0x6d6353);
+
+function updateParticles(dt) {
+  for (let i = 0; i < PCOUNT; i++) {
+    if (pLife[i] <= 0) {
+      if (pAlpha[i] !== 0) pAlpha[i] = 0;
+      continue;
+    }
+    pLife[i] -= dt;
+    if (pLife[i] <= 0) { pAlpha[i] = 0; continue; }
+
+    // — движение —
+    pPos[i*3+0] += pVel[i*3+0] * dt;
+    pPos[i*3+1] += pVel[i*3+1] * dt;
+    pPos[i*3+2] += pVel[i*3+2] * dt;
+
+    // — сопротивление среды: сильное, чтобы «облако» быстро замирало —
+    const drag = Math.exp(-2.4 * dt);
+    pVel[i*3+0] *= drag;
+    pVel[i*3+1] *= drag;
+    pVel[i*3+2] *= drag;
+
+    // — лёгкий подъём, как у настоящего тумана/пыли —
+    pVel[i*3+1] += 0.22 * dt;
+
+    const lifeRatio = pLife[i] / pMaxLife[i];
+
+    // — очень мягкое затухание: плавный «вход» и плавный «выход» —
+    const fadeIn  = Math.min(1.0, (pMaxLife[i] - pLife[i]) / 0.35);
+    const fadeOut = lifeRatio * lifeRatio;          // мягкое затухание в конце
+    pAlpha[i] = fadeIn * fadeOut * pBaseAlpha[i];
+
+    // — облако расширяется почти в 3 раза за жизнь —
+    pSize[i] = pBase[i] * (1.0 + (1.0 - lifeRatio) * 1.9);
+  }
+  pGeo.attributes.position.needsUpdate = true;
+  pGeo.attributes.aColor.needsUpdate   = true;
+  pGeo.attributes.aSize.needsUpdate    = true;
+  pGeo.attributes.aAlpha.needsUpdate   = true;
+}
+
+for (let i = 0; i < PCOUNT; i++) { pAlpha[i] = 0; pLife[i] = 0; }
+
+/* ============================================================
+   14. ФИЗИКА
+   ============================================================ */
+const car = {
+  pos: new THREE.Vector3(0, 0, 0),
+  heading: 0,
+  speed: 0,
+  steer: 0,
+  wheelSpin: 0,
+  prevSpeed: 0,
+  accel: 0,
+  yawRate: 0
+};
+
+const MAX_SPEED    = 32;
+const MAX_REVERSE  = -9;
+const ACCEL        = 13;
+const BRAKE_DECEL  = 26;
+const HANDBRAKE    = 42;
+const COAST_DECEL  = 2.6;
+const MAX_STEER    = 0.55;
+const STEER_SPEED  = 4.5;
+const STEER_RETURN = 6.0;
+const WHEELBASE    = WHEEL_X * 2;
+
+/* ============================================================
+   15. УПРАВЛЕНИЕ
+   ============================================================ */
+const keys = {};
+let headlightsOn = false;
+let hornOsc1 = null, hornOsc2 = null, hornGain = null;
+let audioCtx = null;
+
+function ensureAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch (e) { audioCtx = null; }
+  }
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+}
+function playHorn() {
+  ensureAudio();
+  if (!audioCtx || hornOsc1) return;
+  hornOsc1 = audioCtx.createOscillator();
+  hornOsc2 = audioCtx.createOscillator();
+  hornOsc1.type = 'sawtooth';
+  hornOsc2.type = 'sawtooth';
+  hornOsc1.frequency.value = 420;
+  hornOsc2.frequency.value = 530;
+  const filt = audioCtx.createBiquadFilter();
+  filt.type = 'lowpass';
+  filt.frequency.value = 2400;
+  hornGain = audioCtx.createGain();
+  hornGain.gain.setValueAtTime(0, audioCtx.currentTime);
+  hornGain.gain.linearRampToValueAtTime(0.09, audioCtx.currentTime + 0.02);
+  hornOsc1.connect(filt);
+  hornOsc2.connect(filt);
+  filt.connect(hornGain);
+  hornGain.connect(audioCtx.destination);
+  hornOsc1.start();
+  hornOsc2.start();
+  document.getElementById('indHorn').classList.add('on');
+}
+function stopHorn() {
+  if (!audioCtx || !hornOsc1) return;
+  const stopTime = audioCtx.currentTime + 0.06;
+  hornGain.gain.cancelScheduledValues(audioCtx.currentTime);
+  hornGain.gain.setValueAtTime(hornGain.gain.value, audioCtx.currentTime);
+  hornGain.gain.linearRampToValueAtTime(0.0001, stopTime);
+  hornOsc1.stop(stopTime + 0.02);
+  hornOsc2.stop(stopTime + 0.02);
+  hornOsc1 = null;
+  hornOsc2 = null;
+  document.getElementById('indHorn').classList.remove('on');
+}
+
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space') e.preventDefault();
+  keys[e.code] = true;
+  if (e.code === 'KeyH' && !e.repeat) playHorn();
+  if (e.code === 'KeyG' && !e.repeat) {
+    headlightsOn = !headlightsOn;
+    document.getElementById('indLight').classList.toggle('on', headlightsOn);
+  }
+});
+window.addEventListener('keyup', e => {
+  keys[e.code] = false;
+  if (e.code === 'KeyH') stopHorn();
+});
+window.addEventListener('blur', () => {
+  for (const k in keys) keys[k] = false;
+  stopHorn();
+});
+
+/* ============================================================
+   16. ФАРЫ (прожекторы)
+   ============================================================ */
+const headlampLeft = new THREE.SpotLight(0xfff0d8, 0, 55, Math.PI / 7, 0.35, 1.2);
+headlampLeft.position.set(2.30, 0.72, 0.58);
+headlampLeft.target.position.set(30, 0.0, 0.58);
+carGroup.add(headlampLeft);
+carGroup.add(headlampLeft.target);
+
+const headlampRight = new THREE.SpotLight(0xfff0d8, 0, 55, Math.PI / 7, 0.35, 1.2);
+headlampRight.position.set(2.30, 0.72, -0.58);
+headlampRight.target.position.set(30, 0.0, -0.58);
+carGroup.add(headlampRight);
+carGroup.add(headlampRight.target);
+
+/* ============================================================
+   17. КАМЕРА
+   ============================================================ */
+let camYaw = Math.PI;
+let camPitch = 0.32;
+let camDist = 7.5;
+let dragging = false;
+
+renderer.domElement.addEventListener('pointerdown', e => {
+  if (e.button === 0) { dragging = true; renderer.domElement.setPointerCapture(e.pointerId); }
+});
+renderer.domElement.addEventListener('pointerup', e => {
+  dragging = false;
+  try { renderer.domElement.releasePointerCapture(e.pointerId); } catch (_) {}
+});
+renderer.domElement.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  camYaw -= e.movementX * 0.006;
+  camPitch = Math.max(-0.15, Math.min(1.15, camPitch + e.movementY * 0.005));
+});
+renderer.domElement.addEventListener('wheel', e => {
+  e.preventDefault();
+  camDist = Math.max(3.5, Math.min(20, camDist + e.deltaY * 0.008));
+}, { passive: false });
+
+function lerpAngle(a, b, t) {
+  let d = b - a;
+  while (d >  Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return a + d * t;
+}
+
+/* ============================================================
+   18. ФИЗИКА — ОБНОВЛЕНИЕ
+   ============================================================ */
+function updatePhysics(dt) {
+  car.prevSpeed = car.speed;
+
+  let steerInput = 0;
+  if (keys.KeyA || keys.ArrowLeft)  steerInput += 1;
+  if (keys.KeyD || keys.ArrowRight) steerInput -= 1;
+
+  const speedFactor = 1 - 0.55 * Math.min(1, Math.abs(car.speed) / MAX_SPEED);
+  const targetSteer = steerInput * MAX_STEER * speedFactor;
+  const steerRate = (steerInput !== 0) ? STEER_SPEED : STEER_RETURN;
+  car.steer += (targetSteer - car.steer) * Math.min(1, steerRate * dt);
+
+  let throttle = 0;
+  if (keys.KeyW || keys.ArrowUp)   throttle = 1;
+  if (keys.KeyS || keys.ArrowDown) throttle = -1;
+
+  const handbrake = !!keys.Space;
+
+  if (handbrake) {
+    const decel = HANDBRAKE * dt;
+    if (car.speed > 0) car.speed = Math.max(0, car.speed - decel);
+    else if (car.speed < 0) car.speed = Math.min(0, car.speed + decel);
+  } else if (throttle > 0) {
+    if (car.speed < 0) {
+      car.speed = Math.min(0, car.speed + BRAKE_DECEL * dt);
+    } else {
+      car.speed += ACCEL * dt * (1 - car.speed / MAX_SPEED);
+    }
+  } else if (throttle < 0) {
+    if (car.speed > 0) {
+      car.speed = Math.max(0, car.speed - BRAKE_DECEL * dt);
+    } else {
+      car.speed = Math.max(MAX_REVERSE, car.speed - ACCEL * 0.55 * dt);
+    }
+  } else {
+    const d = COAST_DECEL * dt;
+    if (car.speed > 0) car.speed = Math.max(0, car.speed - d);
+    else if (car.speed < 0) car.speed = Math.min(0, car.speed + d);
+  }
+
+  car.speed = Math.max(MAX_REVERSE, Math.min(MAX_SPEED, car.speed));
+
+  const yawRate = car.speed * Math.tan(car.steer) / WHEELBASE;
+  car.heading += yawRate * dt;
+
+  const cosH = Math.cos(car.heading);
+  const sinH = Math.sin(car.heading);
+  car.pos.x += cosH * car.speed * dt;
+  car.pos.z -= sinH * car.speed * dt;
+
+  car.accel = (car.speed - car.prevSpeed) / Math.max(dt, 0.0001);
+  car.yawRate = yawRate;
+
+  carGroup.position.copy(car.pos);
+  carGroup.rotation.y = car.heading;
+
+  if (!handbrake) {
+    car.wheelSpin += (car.speed / WHEEL_R) * dt;
+  }
+  for (const w of wheelRigs) {
+    w.spinner.rotation.z = -car.wheelSpin;
+    if (w.isFront) w.pivot.rotation.y = car.steer;
+  }
+
+  const targetPitch = THREE.MathUtils.clamp(car.accel * 0.004, -0.05, 0.05);
+  const targetRoll  = THREE.MathUtils.clamp(yawRate * car.speed * 0.014, -0.10, 0.10);
+  carBody.rotation.z += (targetPitch - carBody.rotation.z) * Math.min(1, 8 * dt);
+  carBody.rotation.x += (targetRoll  - carBody.rotation.x) * Math.min(1, 8 * dt);
+
+  return { handbrake, throttle, yawRate };
+}
+
+/* ============================================================
+   19. ЭМИССИЯ ЧАСТИЦ — мягкий туман
+   ============================================================ */
+const tmpV = new THREE.Vector3();
+
+function worldFromLocal(localX, localY, localZ) {
+  const c = Math.cos(car.heading), s = Math.sin(car.heading);
+  return tmpV.set(
+    car.pos.x + localX * c + localZ * s,
+    localY,
+    car.pos.z - localX * s + localZ * c
+  );
+}
+
+function emitParticles(dt, state) {
+  const speedAbs = Math.abs(car.speed);
+
+  // ---- 1) ПЫЛЬ ИЗ-ПОД КОЛЁС НА СКОРОСТИ ----
+  // Очень мягкие, крупные, но еле заметные облачка.
+  // Не «искры», а именно лёгкая дымка, которая стелется за машиной.
+  if (speedAbs > 5) {
+    const intensity = Math.min(1, (speedAbs - 5) / 20);   // 0..1
+    // частота низкая, частицы крупные и прозрачные
+    const prob = intensity * 0.55;
+
+    for (const w of wheelRigs) {
+      if (Math.random() > prob) continue;
+
+      worldFromLocal(w.localX, WHEEL_R * 0.18, w.localZ);
+      const px = tmpV.x + (Math.random() - 0.5) * 0.5;
+      const py = tmpV.y + Math.random() * 0.18;
+      const pz = tmpV.z + (Math.random() - 0.5) * 0.5;
+
+      // медленный дрейф назад + вверх + лёгкий разброс в стороны
+      const backX = -Math.cos(car.heading);
+      const backZ =  Math.sin(car.heading);
+      const latX  =  Math.sin(car.heading);
+      const latZ  =  Math.cos(car.heading);
+
+      const backSpeed = 0.5 + Math.random() * 1.0;
+      const latSpeed  = (Math.random() - 0.5) * 0.5;
+      const vx = backX * backSpeed + latX * latSpeed;
+      const vz = backZ * backSpeed + latZ * latSpeed;
+      const vy = 0.12 + Math.random() * 0.28;
+
+      emitParticle(
+        px, py, pz, vx, vy, vz,
+        1.8 + Math.random() * 1.2,    // жизнь 1.8..3.0 с — долго висит
+        1.1 + Math.random() * 1.0,    // размер 1.1..2.1 — крупные облачка
+        DUST_COLOR,
+        0.05 + Math.random() * 0.05   // базовая альфа 0.05..0.10 — почти прозрачно
+      );
+    }
+  }
+
+  // ---- 2) ДЫМ ОТ РУЧНИКА / ЖЁСТКОГО ТОРМОЖЕНИЯ ----
+  // Тоже мягкий, но чуть более заметный, чем пыль.
+  const isHardBrake = (state.handbrake && speedAbs > 2) ||
+                      (state.throttle < 0 && car.speed > 6);
+
+  if (isHardBrake) {
+    const intensity = Math.min(1, speedAbs / 12) * 0.9 + 0.2;
+    const prob = intensity * 0.65;
+
+    for (const side of [-1, 1]) {
+      if (Math.random() > prob) continue;
+
+      worldFromLocal(-WHEEL_X, WHEEL_R * 0.22, side * WHEEL_Z);
+      const px = tmpV.x + (Math.random() - 0.5) * 0.35;
+      const py = tmpV.y + Math.random() * 0.22;
+      const pz = tmpV.z + (Math.random() - 0.5) * 0.35;
+
+      const backX = -Math.cos(car.heading);
+      const backZ =  Math.sin(car.heading);
+      const latX  =  Math.sin(car.heading);
+      const latZ  =  Math.cos(car.heading);
+
+      // уходит назад и наружу от колеса
+      const backSpeed = 0.6 + Math.random() * 1.0;
+      const latSpeed  = side * (0.25 + Math.random() * 0.55);
+      const vx = backX * backSpeed + latX * latSpeed + (Math.random() - 0.5) * 0.25;
+      const vz = backZ * backSpeed + latZ * latSpeed + (Math.random() - 0.5) * 0.25;
+      const vy = 0.25 + Math.random() * 0.45;
+
+      emitParticle(
+        px, py, pz, vx, vy, vz,
+        1.3 + Math.random() * 0.9,    // жизнь 1.3..2.2 с
+        0.95 + Math.random() * 0.9,   // размер 0.95..1.85
+        SMOKE_COLOR,
+        0.14 + Math.random() * 0.10   // альфа 0.14..0.24 — заметно, но мягко
+      );
+    }
+  }
+}
+
+/* ============================================================
+   20. КАМЕРА — ОБНОВЛЕНИЕ
+   ============================================================ */
+const camPos = new THREE.Vector3();
+
+function updateCamera(dt) {
+  if (!dragging && Math.abs(car.speed) > 2.5) {
+    camYaw = lerpAngle(camYaw, Math.PI, 1 - Math.exp(-1.3 * dt));
+  }
+
+  const az = car.heading + camYaw;
+  const horiz = camDist * Math.cos(camPitch);
+  const vert  = camDist * Math.sin(camPitch);
+
+  const desiredX = car.pos.x + Math.cos(az) * horiz;
+  const desiredZ = car.pos.z - Math.sin(az) * horiz;
+  const desiredY = car.pos.y + 0.65 + vert;
+
+  camPos.set(desiredX, desiredY, desiredZ);
+
+  const lerpFactor = 1 - Math.exp(-9 * dt);
+  camera.position.lerp(camPos, lerpFactor);
+
+  const lookAhead = 1.8;
+  const lookX = car.pos.x + Math.cos(car.heading) * lookAhead;
+  const lookZ = car.pos.z - Math.sin(car.heading) * lookAhead;
+  camera.lookAt(lookX, car.pos.y + 0.7, lookZ);
+}
+
+/* ============================================================
+   21. СВЕТ / ФАРЫ
+   ============================================================ */
+function updateLights(state) {
+  keyLight.position.set(car.pos.x + 8, 12, car.pos.z + 7);
+  keyLight.target.position.set(car.pos.x, 0, car.pos.z);
+  keyLight.target.updateMatrixWorld();
+
+  const targetHL = headlightsOn ? 4.5 : 0;
+  headlampLeft.intensity  += (targetHL - headlampLeft.intensity)  * 0.18;
+  headlampRight.intensity += (targetHL - headlampRight.intensity) * 0.18;
+
+  headlightLensMat.emissiveIntensity = headlightsOn ? 3.5 : 0.15;
+  drlMat.emissiveIntensity           = headlightsOn ? 3.0 : 0.4;
+
+  const braking = state.handbrake || (state.throttle < 0 && car.speed > 0.5);
+  taillightMat.emissiveIntensity = braking ? 3.5 : 0.4;
+  document.getElementById('indBrake').classList.toggle('on', braking);
+}
+
+/* ============================================================
+   22. ПОСТ-ОБРАБОТКА
+   ============================================================ */
+const composer = new EffectComposer(renderer);
+composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+composer.setSize(window.innerWidth, window.innerHeight);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  0.32, 0.55, 0.88
+);
+composer.addPass(bloomPass);
+composer.addPass(new OutputPass());
+
+/* ============================================================
+   23. ПОЛ / СТУДИЯ
+   ============================================================ */
+const groundSize = 400;
+const floorMesh = new THREE.Mesh(
+  new THREE.PlaneGeometry(groundSize, groundSize),
+  new THREE.MeshStandardMaterial({
+    color: 0x0e1116, metalness: 0.55, roughness: 0.48, envMapIntensity: 0.65
+  })
+);
+floorMesh.rotation.x = -Math.PI / 2;
+floorMesh.receiveShadow = true;
+scene.add(floorMesh);
+
+const grid = new THREE.GridHelper(groundSize, 130, 0x212732, 0x141820);
+grid.position.y = 0.002;
+grid.material.transparent = true;
+grid.material.opacity = 0.35;
+scene.add(grid);
+
+/* ============================================================
+   24. РЕСАЙЗ + ЦИКЛ
+   ============================================================ */
+window.addEventListener('resize', () => {
+  const w = window.innerWidth, h = window.innerHeight;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+  composer.setSize(w, h);
+  bloomPass.setSize(w, h);
+});
+
+const clock = new THREE.Clock();
+const speedValEl = document.getElementById('speedVal');
+
+function animate() {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t  = clock.elapsedTime;
+
+  keyLight.intensity = 2.2 + Math.sin(t * 0.7) * 0.05;
+  rimLight.intensity = 0.5 + Math.sin(t * 0.5 + 1.2) * 0.05;
+
+  const state = updatePhysics(dt);
+  emitParticles(dt, state);
+  updateParticles(dt);
+  updateCamera(dt);
+  updateLights(state);
+
+  speedValEl.textContent = Math.round(Math.abs(car.speed) * 3.6);
+  composer.render();
+}
+renderer.setAnimationLoop(animate);
+</script>
+</body>
+</html>

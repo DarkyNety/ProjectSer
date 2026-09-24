@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Dude — Three.js</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #14110d;
+               font-family: system-ui, -apple-system, sans-serif; }
+  canvas { display: block; }
+  #hud {
+    position: fixed; left: 18px; bottom: 16px; pointer-events: none;
+    color: #8a7f6c; font-size: 12px; letter-spacing: .06em; line-height: 1.7;
+  }
+  #hud b { color: #e0d3b8; display: block; font-size: 15px; letter-spacing: .14em;
+           margin-bottom: 6px; text-transform: uppercase; }
+  #hud kbd {
+    display: inline-block; padding: 1px 6px; margin: 0 1px;
+    background: #241e17; border: 1px solid #3d3327; border-radius: 4px;
+    color: #bfa987; font-family: inherit; font-size: 11px;
+  }
+</style>
+</head>
+<body>
+<div id="hud">
+  <b>The Dude</b>
+  <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> — движение &nbsp;·&nbsp;
+  <kbd>Shift</kbd> — бег &nbsp;·&nbsp;
+  <kbd>Ctrl</kbd>/<kbd>C</kbd> — присед &nbsp;·&nbsp;
+  <kbd>Space</kbd> — прыжок<br>
+  ЛКМ — вращение камеры &nbsp;·&nbsp; колесо — зум &nbsp;·&nbsp; ПКМ — сдвиг
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ============================================================
+   РЕНДЕРЕР / СЦЕНА / КАМЕРА
+   ============================================================ */
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.08;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x14110d);
+scene.fog = new THREE.Fog(0x14110d, 9, 24);
+
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 120);
+camera.position.set(2.8, 1.9, 3.5);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1.05, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.07;
+controls.minDistance = 1.8;
+controls.maxDistance = 9;
+controls.maxPolarAngle = Math.PI * 0.495;
+controls.update();
+
+/* ============================================================
+   СВЕТ
+   ============================================================ */
+scene.add(new THREE.HemisphereLight(0xd8c9a8, 0x1a1510, 1.10));
+
+const keyLight = new THREE.DirectionalLight(0xfff0d6, 2.4);
+keyLight.position.set(4, 6.5, 5);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.camera.near = 1;
+keyLight.shadow.camera.far = 22;
+keyLight.shadow.camera.left = -4;
+keyLight.shadow.camera.right = 4;
+keyLight.shadow.camera.top = 4.5;
+keyLight.shadow.camera.bottom = -1;
+keyLight.shadow.bias = -0.0006;
+keyLight.shadow.normalBias = 0.02;
+scene.add(keyLight);
+
+const rimLight = new THREE.DirectionalLight(0xff8a3a, 2.0);
+rimLight.position.set(-4.5, 3, -3.5);
+scene.add(rimLight);
+
+const fillLight = new THREE.PointLight(0x5a86d8, 5, 10, 2);
+fillLight.position.set(-1.8, 1.2, 2.6);
+scene.add(fillLight);
+
+/* ============================================================
+   ПОЛ
+   ============================================================ */
+const ground = new THREE.Mesh(
+  new THREE.CircleGeometry(9, 64),
+  new THREE.MeshStandardMaterial({ color: 0x1a1712, roughness: 0.95, metalness: 0.06 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+const grid = new THREE.GridHelper(20, 40, 0x4a3c26, 0x2a2318);
+grid.position.y = 0.003;
+grid.material.transparent = true;
+grid.material.opacity = 0.45;
+scene.add(grid);
+
+/* ============================================================
+   МАТЕРИАЛЫ
+   ============================================================ */
+const M = {
+  skin:     new THREE.MeshStandardMaterial({ color: 0xcf9a71, roughness: 0.86, metalness: 0.0 }),
+  hair:     new THREE.MeshStandardMaterial({ color: 0x2e2014, roughness: 0.94, metalness: 0.0 }),
+  beard:    new THREE.MeshStandardMaterial({ color: 0x241a10, roughness: 0.95, metalness: 0.0 }),
+
+  coat:     new THREE.MeshStandardMaterial({ color: 0x1e1a16, roughness: 0.82, metalness: 0.12,
+                                             side: THREE.DoubleSide }),
+  coatD:    new THREE.MeshStandardMaterial({ color: 0x141110, roughness: 0.86, metalness: 0.10 }),
+  coatIn:   new THREE.MeshStandardMaterial({ color: 0x2a221a, roughness: 0.92, metalness: 0.05,
+                                             side: THREE.DoubleSide }),
+
+  shirt:    new THREE.MeshStandardMaterial({ color: 0x54544a, roughness: 0.95, metalness: 0.02 }),
+  shirtD:   new THREE.MeshStandardMaterial({ color: 0x3e3e36, roughness: 0.96, metalness: 0.02 }),
+
+  jeans:    new THREE.MeshStandardMaterial({ color: 0x4f6483, roughness: 0.96, metalness: 0.03 }),
+  jeansD:   new THREE.MeshStandardMaterial({ color: 0x3d5070, roughness: 0.97, metalness: 0.03 }),
+
+  belt:     new THREE.MeshStandardMaterial({ color: 0x1f1710, roughness: 0.82, metalness: 0.10 }),
+  buckle:   new THREE.MeshStandardMaterial({ color: 0xa8a090, roughness: 0.35, metalness: 0.90 }),
+
+  boot:     new THREE.MeshStandardMaterial({ color: 0x1a1714, roughness: 0.88, metalness: 0.10 }),
+  sole:     new THREE.MeshStandardMaterial({ color: 0x0d0c0a, roughness: 0.94, metalness: 0.04 }),
+
+  lens:     new THREE.MeshPhysicalMaterial({
+              color: 0x080810, metalness: 1.0, roughness: 0.05,
+              clearcoat: 1.0, clearcoatRoughness: 0.03,
+              emissive: 0x0e1830, emissiveIntensity: 0.35
+            }),
+  frame:    new THREE.MeshStandardMaterial({ color: 0x121316, roughness: 0.38, metalness: 0.85 }),
+
+  mouth:    new THREE.MeshStandardMaterial({ color: 0x7a4a3a, roughness: 0.88, metalness: 0.0 }),
+};
+
+/* ============================================================
+   ХЕЛПЕРЫ
+   ============================================================ */
+function box(parent, w, h, d, mat, x, y, z) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.position.set(x, y, z);
+  m.castShadow = m.receiveShadow = true;
+  parent.add(m);
+  return m;
+}
+
+function sphere(parent, r, mat, x, y, z, sx = 1, sy = 1, sz = 1) {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 14), mat);
+  m.position.set(x, y, z);
+  m.scale.set(sx, sy, sz);
+  m.castShadow = m.receiveShadow = true;
+  parent.add(m);
+  return m;
+}
+
+function cyl(parent, rTop, rBot, h, mat, x, y, z, axis = 'y') {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, h, 16), mat);
+  m.position.set(x, y, z);
+  if (axis === 'z') m.rotation.x = Math.PI / 2;
+  if (axis === 'x') m.rotation.z = Math.PI / 2;
+  m.castShadow = m.receiveShadow = true;
+  parent.add(m);
+  return m;
+}
+
+/* ============================================================
+   ИЕРАРХИЯ
+   ============================================================ */
+const ct    = new THREE.Group();
+const body  = new THREE.Group();
+const upper = new THREE.Group();
+
+upper.position.y = 0.96;
+body.add(upper);
+ct.add(body);
+scene.add(ct);
+
+/* ---------- НОГА: узкие широкие джинсы + ботинки ---------- */
+function makeLeg(side) {
+  const sx = side * 0.108;
+
+  const hip = new THREE.Group();
+  hip.position.set(sx, 0.96, 0);
+  body.add(hip);
+
+  // Бедро — сузили
+  box(hip, 0.195, 0.46, 0.205, M.jeans, 0, -0.23, 0);
+  box(hip, 0.20, 0.022, 0.21, M.jeansD, 0, -0.32, 0);
+
+  const knee = new THREE.Group();
+  knee.position.y = -0.46;
+  hip.add(knee);
+
+  // Голенище
+  box(knee, 0.185, 0.37, 0.19, M.jeans, 0, -0.185, 0);
+  box(knee, 0.19, 0.022, 0.195, M.jeansD, 0, -0.35, 0);
+
+  const ankle = new THREE.Group();
+  ankle.position.y = -0.38;
+  knee.add(ankle);
+
+  // Ботинки — сузили
+  box(ankle, 0.185, 0.13, 0.30, M.boot, 0, -0.055, 0.05);
+  box(ankle, 0.195, 0.035, 0.31, M.sole, 0, -0.108, 0.05);
+  box(ankle, 0.125, 0.055, 0.095, M.boot, 0, 0.018, 0.100);
+  box(ankle, 0.018, 0.075, 0.012, M.sole, 0.026, -0.030, 0.150);
+  box(ankle, 0.018, 0.075, 0.012, M.sole, -0.026, -0.030, 0.150);
+
+  return { hip, knee, ankle };
+}
+
+/* ---------- РУКА: длинные рукава пальто ---------- */
+function makeArm(side) {
+  const sx = side * 0.228;
+  const L1 = 0.32;
+  const L2 = 0.30;
+
+  const shoulder = new THREE.Group();
+  shoulder.position.set(sx, 0.55, 0);
+  upper.add(shoulder);
+
+  // Плечо — сузили
+  sphere(shoulder, 0.115, M.coat, 0, 0, 0, 1.0, 0.86, 1.10);
+  box(shoulder, 0.13, L1, 0.14, M.coat, 0, -L1 / 2, 0);
+
+  const elbow = new THREE.Group();
+  elbow.position.y = -L1;
+  shoulder.add(elbow);
+
+  sphere(elbow, 0.062, M.coat, 0, 0, 0);
+  box(elbow, 0.115, L2, 0.125, M.coat, 0, -L2 / 2, 0);
+  box(elbow, 0.120, 0.026, 0.130, M.coatD, 0, -L2 + 0.02, 0);
+
+  const hand = new THREE.Group();
+  hand.position.y = -L2;
+  elbow.add(hand);
+
+  // Кисть — сузили
+  box(hand, 0.082, 0.10, 0.092, M.skin, 0, -0.045, 0);
+
+  // Большой палец — теперь с ВНУТРЕННЕЙ стороны кисти (к телу)
+  box(hand, 0.026, 0.052, 0.030, M.skin, -side * 0.046, -0.028, 0.018);
+
+  return { shoulder, elbow, hand, L1, L2 };
+}
+
+const legA = makeLeg( 1);
+const legB = makeLeg(-1);
+const armA = makeArm( 1);
+const armB = makeArm(-1);
+
+/* ---------- ТОРС — сузили ---------- */
+box(upper, 0.30, 0.22, 0.20, M.jeans, 0, 0.11, 0);
+box(upper, 0.32, 0.06, 0.215, M.belt, 0, 0.235, 0);
+box(upper, 0.05, 0.045, 0.045, M.buckle, 0, 0.235, 0.118);
+
+box(upper, 0.32, 0.42, 0.215, M.shirt, 0, 0.42, 0);
+box(upper, 0.19, 0.05, 0.195, M.shirtD, 0, 0.665, 0);
+
+// Пальто — верх (сузили)
+box(upper, 0.40, 0.46, 0.06, M.coat, 0, 0.42, -0.128);
+box(upper, 0.06, 0.46, 0.25, M.coat, -0.18, 0.42, 0);
+box(upper, 0.06, 0.46, 0.25, M.coat,  0.18, 0.42, 0);
+box(upper, 0.44, 0.15, 0.27, M.coat, 0, 0.605, 0);
+
+// Передние полы пальто
+box(upper, 0.115, 0.43, 0.06, M.coat, -0.135, 0.42, 0.115);
+box(upper, 0.115, 0.43, 0.06, M.coat,  0.135, 0.42, 0.115);
+
+// Воротник
+box(upper, 0.26, 0.11, 0.055, M.coat, 0, 0.688, -0.095);
+box(upper, 0.055, 0.11, 0.20,  M.coat, -0.11, 0.688, -0.005);
+box(upper, 0.055, 0.11, 0.20,  M.coat,  0.11, 0.688, -0.005);
+
+// Лацканы
+box(upper, 0.05, 0.24, 0.045, M.coatD, -0.075, 0.52, 0.140);
+box(upper, 0.05, 0.24, 0.045, M.coatD,  0.075, 0.52, 0.140);
+
+// Карманы
+box(upper, 0.08, 0.10, 0.012, M.coatD, -0.14, 0.28, 0.148);
+box(upper, 0.08, 0.10, 0.012, M.coatD,  0.14, 0.28, 0.148);
+
+/* ---------- ЮБКА ПАЛЬТО (сузили) ---------- */
+const coatSkirt = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.215, 0.285, 0.72, 20, 1, true,
+                             Math.PI * 0.28, Math.PI * 1.44),
+  M.coat
+);
+coatSkirt.position.set(0, 0.84, 0);
+coatSkirt.castShadow = true;
+coatSkirt.receiveShadow = true;
+body.add(coatSkirt);
+
+const coatLining = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.202, 0.268, 0.70, 20, 1, true,
+                             Math.PI * 0.30, Math.PI * 1.40),
+  M.coatIn
+);
+coatLining.position.set(0, 0.84, 0);
+coatLining.castShadow = false;
+coatLining.receiveShadow = true;
+body.add(coatLining);
+
+/* ---------- ШЕЯ И ГОЛОВА (сузили) ---------- */
+cyl(upper, 0.064, 0.074, 0.13, M.skin, 0, 0.67, 0);
+
+// Голова — меньше радиус
+sphere(upper, 0.118, M.skin, 0, 0.785, 0.008, 0.95, 1.06, 1.0);
+
+// Волосы
+const hairBack = new THREE.Mesh(
+  new THREE.SphereGeometry(0.1245, 22, 16, Math.PI * 0.75, Math.PI * 1.5, 0, Math.PI * 0.95),
+  M.hair
+);
+hairBack.position.set(0, 0.788, 0.004);
+hairBack.scale.set(1.035, 1.06, 1.03);
+hairBack.castShadow = true;
+upper.add(hairBack);
+
+const hairTop = new THREE.Mesh(
+  new THREE.SphereGeometry(0.124, 22, 14, 0, Math.PI * 2, 0, Math.PI * 0.42),
+  M.hair
+);
+hairTop.position.set(0, 0.788, 0.004);
+hairTop.scale.set(1.05, 1.10, 1.05);
+hairTop.castShadow = true;
+upper.add(hairTop);
+
+// Вихры
+box(upper, 0.09, 0.035, 0.065, M.hair, 0.014, 0.858, 0.068);
+box(upper, 0.055, 0.028, 0.045, M.hair, -0.032, 0.865, 0.050);
+
+// Уши
+sphere(upper, 0.022, M.skin,  0.112, 0.785, 0.005, 0.5, 1.1, 0.9);
+sphere(upper, 0.022, M.skin, -0.112, 0.785, 0.005, 0.5, 1.1, 0.9);
+
+/* ============================================================
+   СОЛНЕЧНЫЕ ОЧКИ — УМЕНЬШЕННЫЕ ПРЯМОУГОЛЬНЫЕ
+   ============================================================ */
+// Линзы — стали меньше и тоньше
+box(upper, 0.068, 0.040, 0.010, M.lens,  0.052, 0.800, 0.117);
+box(upper, 0.068, 0.040, 0.010, M.lens, -0.052, 0.800, 0.117);
+
+// Верхняя оправа
+box(upper, 0.078, 0.012, 0.020, M.frame,  0.052, 0.824, 0.112);
+box(upper, 0.078, 0.012, 0.020, M.frame, -0.052, 0.824, 0.112);
+
+// Нижняя оправа
+box(upper, 0.076, 0.009, 0.018, M.frame,  0.052, 0.778, 0.112);
+box(upper, 0.076, 0.009, 0.018, M.frame, -0.052, 0.778, 0.112);
+
+// Внешние боковые стойки
+box(upper, 0.010, 0.050, 0.020, M.frame,  0.086, 0.800, 0.112);
+box(upper, 0.010, 0.050, 0.020, M.frame, -0.086, 0.800, 0.112);
+
+// Внутренние боковые стойки (у мостика)
+box(upper, 0.009, 0.050, 0.018, M.frame,  0.014, 0.800, 0.112);
+box(upper, 0.009, 0.050, 0.018, M.frame, -0.014, 0.800, 0.112);
+
+// Мостик
+box(upper, 0.022, 0.010, 0.020, M.frame, 0, 0.814, 0.113);
+
+// Дужки (за уши)
+box(upper, 0.012, 0.010, 0.10, M.frame,  0.092, 0.802, 0.055);
+box(upper, 0.012, 0.010, 0.10, M.frame, -0.092, 0.802, 0.055);
+
+/* ---------- ЛИЦО (под новую голову) ---------- */
+sphere(upper, 0.019, M.skin, 0, 0.775, 0.122, 0.85, 1.15, 1.0);
+
+box(upper, 0.032, 0.008, 0.012, M.mouth, 0, 0.740, 0.114);
+
+/* ---------- БОРОДА И УСЫ ---------- */
+box(upper, 0.060, 0.015, 0.020, M.beard, 0, 0.756, 0.110);
+
+const goatee = new THREE.Mesh(
+  new THREE.SphereGeometry(0.044, 14, 10),
+  M.beard
+);
+goatee.position.set(0, 0.716, 0.092);
+goatee.scale.set(1.0, 0.75, 0.65);
+goatee.castShadow = true;
+upper.add(goatee);
+
+box(upper, 0.020, 0.070, 0.055, M.beard,  0.108, 0.766, 0.026);
+box(upper, 0.020, 0.070, 0.055, M.beard, -0.108, 0.766, 0.026);
+
+/* ============================================================
+   СОСТОЯНИЕ И ВВОД
+   ============================================================ */
+const keys = Object.create(null);
+addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+
+const state = {
+  speed: 0,
+  crouch: 0, crouchTarget: 0,
+  sprint: 0, sprintTarget: 0,
+  air: 0, grounded: true, vy: 0,
+  phase: 0, moveBlend: 0,
+};
+
+/* ============================================================
+   АНИМАЦИЯ
+   ============================================================ */
+const clock = new THREE.Clock();
+
+function updateCharacter(dt, t) {
+  let ix = 0, iz = 0;
+  if (keys.KeyW || keys.ArrowUp)    iz -= 1;
+  if (keys.KeyS || keys.ArrowDown)  iz += 1;
+  if (keys.KeyA || keys.ArrowLeft)  ix -= 1;
+  if (keys.KeyD || keys.ArrowRight) ix += 1;
+
+  const crouchKey = !!(keys.ControlLeft || keys.ControlRight || keys.KeyC);
+  const sprintKey = !!(keys.ShiftLeft || keys.ShiftRight);
+  const hasInput  = (ix !== 0 || iz !== 0);
+
+  const camFwd = new THREE.Vector3();
+  camera.getWorldDirection(camFwd);
+  camFwd.y = 0;
+  if (camFwd.lengthSq() < 1e-6) camFwd.set(0, 0, -1);
+  camFwd.normalize();
+  const camRight = new THREE.Vector3().crossVectors(camFwd, new THREE.Vector3(0, 1, 0)).normalize();
+
+  const moveDir = new THREE.Vector3();
+  if (hasInput) moveDir.addScaledVector(camFwd, -iz).addScaledVector(camRight, ix).normalize();
+
+  state.crouchTarget = (crouchKey && state.grounded) ? 1 : 0;
+  state.sprintTarget = (sprintKey && hasInput && !crouchKey && state.grounded) ? 1 : 0;
+
+  state.crouch += (state.crouchTarget - state.crouch) * Math.min(1, dt * 9);
+  state.sprint += (state.sprintTarget - state.sprint) * Math.min(1, dt * 6);
+
+  const baseSpeed = 1.62 * (1 - 0.46 * state.crouch);
+  const maxSpeed  = baseSpeed * (1 + state.sprint * 1.18);
+  const targetSpeed = hasInput ? maxSpeed : 0;
+  state.speed += (targetSpeed - state.speed) * Math.min(1, dt * 9);
+
+  if (hasInput) {
+    const targetYaw = Math.atan2(moveDir.x, moveDir.z);
+    let d = targetYaw - ct.rotation.y;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    ct.rotation.y += d * Math.min(1, dt * 10);
+  }
+
+  if (state.speed > 0.002) {
+    const fwd = new THREE.Vector3(Math.sin(ct.rotation.y), 0, Math.cos(ct.rotation.y));
+    ct.position.addScaledVector(fwd, state.speed * dt);
+  }
+
+  if (keys.Space && state.grounded) {
+    state.vy = 4.4;
+    state.grounded = false;
+  }
+  if (!state.grounded) {
+    state.vy -= 13.5 * dt;
+    ct.position.y += state.vy * dt;
+    if (ct.position.y <= 0) { ct.position.y = 0; state.vy = 0; state.grounded = true; }
+  }
+  state.air += ((state.grounded ? 0 : 1) - state.air) * Math.min(1, dt * 12);
+
+  if (state.grounded) {
+    const cadence = 4.4 + state.sprint * 3.4;
+    state.phase += dt * cadence * Math.min(1.35, state.speed / 1.35);
+  }
+  const blendTarget = state.speed > 0.08 ? Math.min(1, state.speed / 1.2) : 0;
+  state.moveBlend += (blendTarget - state.moveBlend) * Math.min(1, dt * 10);
+
+  /* ---------- поза ---------- */
+  const p     = state.phase;
+  const pA    = p;
+  const pB    = p + Math.PI;
+  const moveB = state.moveBlend;
+  const c     = state.crouch;
+  const air   = state.air;
+  const sp    = state.sprint;
+
+  const amp     = (0.45 + 0.18 * sp) * moveB * (1 - 0.35 * c);
+  const kneeAmp = (0.85 + 0.45 * sp) * moveB * (1 - 0.30 * c);
+
+  const crouchHip  = -0.90 * c;
+  const crouchKnee =  1.80 * c;
+  const airHip     = -0.55 * air;
+  const airKnee    =  1.10 * air;
+
+  const legLift = 0.84 * (1 - Math.cos(amp * Math.cos(p)));
+  const breath  = Math.sin(t * 1.7) * 0.010 * (1 - moveB);
+  body.position.y = -legLift - 0.32 * c + breath;
+
+  upper.rotation.x = 0.11 * moveB * (1 + sp * 0.9) * (1 - air * 0.5) + 0.24 * c * (1 - air);
+  upper.rotation.z = Math.sin(p * 2) * 0.012 * moveB;
+
+  function poseLeg(L, ph) {
+    const hipWalk  = -amp * Math.cos(ph);
+    const kneeWalk = kneeAmp * (0.5 - 0.5 * Math.cos(ph - 1.0));
+
+    const hip  = hipWalk  + crouchHip  + airHip;
+    const knee = kneeWalk + crouchKnee + airKnee;
+
+    L.hip.rotation.x  = hip;
+    L.knee.rotation.x = knee;
+    L.ankle.rotation.x = -(hipWalk + kneeWalk) * 0.60
+                       - (crouchHip + crouchKnee + airHip + airKnee);
+  }
+  poseLeg(legA, pA);
+  poseLeg(legB, pB);
+
+  const armAmp   = (0.40 + 0.28 * sp) * moveB * (1 - 0.30 * c);
+  const elbowAmp = (0.42 + 0.38 * sp) * moveB;
+
+  function poseArm(A, ph, side) {
+    const swing = armAmp * Math.cos(ph);
+    const bend  = elbowAmp * Math.max(0, -Math.cos(ph));
+
+    A.shoulder.rotation.x = swing - 0.60 * air - 0.12 * c;
+    A.shoulder.rotation.z = side * (0.07 + 0.06 * c + 0.14 * air);
+    A.elbow.rotation.x    = -0.14 - bend - 0.55 * air - 0.22 * c;
+  }
+  poseArm(armA, pA,  1);
+  poseArm(armB, pB, -1);
+
+  // Покачивание пальто
+  const coatSway = state.speed * 0.075;
+  coatSkirt.rotation.x  = coatSway;
+  coatLining.rotation.x = coatSway;
+  const sideSway = Math.sin(p) * 0.020 * moveB;
+  coatSkirt.rotation.z  = sideSway;
+  coatLining.rotation.z = sideSway;
+}
+
+function followCamera(dt) {
+  const desired = new THREE.Vector3(ct.position.x, ct.position.y * 0.7 + 1.05, ct.position.z);
+  const delta = desired.sub(controls.target).multiplyScalar(1 - Math.pow(0.0015, dt));
+  controls.target.add(delta);
+  camera.position.add(delta);
+}
+
+function animate() {
+  const dt = Math.min(clock.getDelta(), 0.033);
+  const t  = clock.elapsedTime;
+
+  updateCharacter(dt, t);
+  controls.update();
+  followCamera(dt);
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(animate);
+}
+animate();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>

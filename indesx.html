@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Factory — FPS Engine</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden; background: #080b0f;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    color: #dbe5ef; -webkit-font-smoothing: antialiased;
+  }
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  #crosshair {
+    position: fixed; left: 50%; top: 50%; width: 24px; height: 24px;
+    margin: -12px 0 0 -12px; pointer-events: none; z-index: 20; opacity: .8;
+  }
+  #crosshair::before, #crosshair::after {
+    content: ""; position: absolute; background: #eaf2ff;
+    box-shadow: 0 0 4px rgba(0,0,0,.95);
+  }
+  #crosshair::before { left: 50%; top: 0; width: 1.5px; height: 100%; margin-left: -.75px; }
+  #crosshair::after  { top: 50%; left: 0; height: 1.5px; width: 100%; margin-top: -.75px; }
+
+  #hud {
+    position: fixed; left: 16px; bottom: 16px; z-index: 20; font-size: 12px;
+    line-height: 1.75; min-width: 210px; padding: 10px 14px; border-radius: 10px;
+    background: rgba(8,12,17,.55); border: 1px solid rgba(140,180,220,.18);
+    backdrop-filter: blur(6px); pointer-events: none;
+  }
+  #hud .row { display: flex; justify-content: space-between; gap: 14px; }
+  #hud .row span { color: #8fa6bb; }
+  #hud b { color: #7fd7ff; font-weight: 600; }
+  #hud .bar { height: 4px; margin-top: 8px; border-radius: 2px; overflow: hidden;
+    background: rgba(255,255,255,.09); }
+  #hud .bar i { display: block; height: 100%; width: 0%;
+    background: linear-gradient(90deg, #38bdf8, #a855f7); transition: width .08s linear; }
+
+  #fps {
+    position: fixed; right: 16px; top: 16px; z-index: 20; font-size: 12px;
+    padding: 8px 12px; border-radius: 10px; pointer-events: none;
+    background: rgba(8,12,17,.55); border: 1px solid rgba(140,180,220,.18);
+    backdrop-filter: blur(6px);
+  }
+  #fps b { color: #7fd7ff; }
+
+  #hint {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 20;
+    font-size: 11.5px; color: #9fb3c8; white-space: nowrap; pointer-events: none;
+    padding: 6px 14px; border-radius: 999px;
+    background: rgba(8,12,17,.5); border: 1px solid rgba(140,180,220,.14);
+  }
+
+  #overlay {
+    position: fixed; inset: 0; z-index: 40; display: grid; place-items: center;
+    background: radial-gradient(ellipse at 50% 40%, rgba(20,32,46,.82), rgba(4,6,9,.96));
+    backdrop-filter: blur(3px); transition: opacity .35s ease, visibility .35s;
+  }
+  #overlay.off { opacity: 0; visibility: hidden; pointer-events: none; }
+  .card {
+    width: min(680px, 92vw); padding: 34px 38px; border-radius: 18px;
+    background: linear-gradient(160deg, rgba(18,26,36,.92), rgba(10,14,20,.94));
+    border: 1px solid rgba(120,170,220,.22);
+    box-shadow: 0 30px 90px rgba(0,0,0,.65), inset 0 1px 0 rgba(255,255,255,.05);
+  }
+  .card h1 { margin: 0 0 6px; font-size: 25px; letter-spacing: .14em; color: #eaf4ff; }
+  .card .sub { margin: 0 0 24px; color: #7f95ac; font-size: 12.5px; letter-spacing: .06em; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px; margin-bottom: 26px; }
+  .grid div {
+    display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px;
+    padding: 6px 10px; border-radius: 8px;
+    background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.05);
+  }
+  .grid span:first-child { color: #8fa6bb; }
+  .grid span:last-child  { color: #7fd7ff; }
+  button {
+    width: 100%; padding: 15px; border-radius: 12px; font: inherit; font-size: 14px;
+    letter-spacing: .16em; font-weight: 600; cursor: pointer; color: #dff3ff;
+    border: 1px solid rgba(127,215,255,.4);
+    background: linear-gradient(180deg, rgba(56,189,248,.22), rgba(56,189,248,.08));
+    transition: .18s;
+  }
+  button:hover {
+    background: linear-gradient(180deg, rgba(56,189,248,.35), rgba(56,189,248,.15));
+    box-shadow: 0 0 26px rgba(56,189,248,.28); transform: translateY(-1px);
+  }
+  button:active { transform: translateY(0); }
+  .note { margin-top: 14px; font-size: 11px; color: #5f7385; text-align: center; }
+
+  .hidden { display: none !important; }
+</style>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+
+<div id="app"></div>
+
+<div id="crosshair" class="hidden"></div>
+
+<div id="hud" class="hidden">
+  <div class="row"><span>Режим</span><b id="hudMode">Пеший</b></div>
+  <div class="row"><span>Стойка</span><b id="hudStance">Стоя</b></div>
+  <div class="row"><span>Скорость</span><b id="hudSpeed">0.0 м/с</b></div>
+  <div class="bar"><i id="hudBar"></i></div>
+</div>
+
+<div id="fps" class="hidden"><b id="fpsVal">60</b> FPS</div>
+
+<div id="hint" class="hidden">
+  Tab / F — орбитальная камера · Shift — бег · Ctrl / C — присед · Space — прыжок · R — респавн
+</div>
+
+<div id="overlay">
+  <div class="card">
+    <h1>ПРОМЫШЛЕННЫЙ КОМПЛЕКС</h1>
+    <p class="sub">Процедурная 3D-карта на Three.js · режим от первого лица</p>
+
+    <div class="grid">
+      <div><span>Движение</span><span>W A S D / ← ↑ ↓ →</span></div>
+      <div><span>Обзор</span><span>Мышь</span></div>
+      <div><span>Бег</span><span>Shift</span></div>
+      <div><span>Присед</span><span>Ctrl / C</span></div>
+      <div><span>Прыжок</span><span>Space</span></div>
+      <div><span>Респавн</span><span>R</span></div>
+      <div><span>Орбитальная камера</span><span>Tab / F</span></div>
+      <div><span>Выход</span><span>Esc</span></div>
+    </div>
+
+    <button id="startBtn">ВОЙТИ НА ТЕРРИТОРИЮ</button>
+    <p class="note">Для захвата мыши браузер запросит Pointer Lock. Esc — вернуться к орбитальной камере.</p>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { FactoryScene } from './factory.js';
+
+/* ============================================================
+   1. НАСТРОЙКИ ПЕРСОНАЖА
+   ============================================================ */
+const CFG = {
+  walkSpeed:    4.6,
+  runSpeed:     9.6,
+  crouchSpeed:  2.0,
+  standEye:     1.70,
+  crouchEye:    0.85,
+  accelGround: 16.0,
+  accelAir:     4.0,
+  gravity:     14.0,
+  fovOrbit:    45,
+  fovWalk:     72,
+  fovRun:      79,
+  bobAmount:   0.062,
+  spawn: { x: 6, z: 52, yaw: 0 }
+};
+
+/* ============================================================
+   2. СОЗДАНИЕ МИРА
+   ============================================================ */
+const app   = document.getElementById('app');
+const world = new FactoryScene(app, {
+  exposure: 0.95,
+  shadows: true,
+  bloom: { strength: 0.5, radius: 0.7, threshold: 0.85 },
+  pixelRatioCap: 2,
+  startInWalkMode: false
+});
+
+/* ============================================================
+   3. РАСШИРЕНИЯ ПЕШЕГО РЕЖИМА
+      Переопределяем _updatePlayer (sprint, crouch, bob, FOV)
+      и setWalkMode (точка спавна, стартовый FOV).
+   ============================================================ */
+function installPlayerEnhancements(world) {
+
+  /* ----- Состояние HUD ----- */
+  world._hudState = { stance: 'Стоя', speed: 0, sprint: false, crouch: 0 };
+
+  /* ----- Основной апдейт игрока ----- */
+  world._updatePlayer = function (dt) {
+    const p = this._player;
+    if (!p) return;
+
+    const keys = this._keys || {};
+
+    const sprintKey = !!(keys['ShiftLeft'] || keys['ShiftRight']);
+    const crouchKey = !!(keys['ControlLeft'] || keys['ControlRight'] || keys['KeyC']);
+
+    /* Плавный присед */
+    p.crouchT = p.crouchT ?? 0;
+    const targetCrouch = crouchKey ? 1 : 0;
+    p.crouchT += (targetCrouch - p.crouchT) * Math.min(1, dt * 12);
+    if (p.crouchT < 0.001) p.crouchT = 0;
+    if (p.crouchT > 0.999) p.crouchT = 1;
+
+    const eyeHeight = CFG.standEye + (CFG.crouchEye - CFG.standEye) * p.crouchT;
+
+    /* Целевая скорость */
+    const sprinting = sprintKey && !crouchKey && p.onGround;
+    let targetSpeed = CFG.walkSpeed;
+    if (crouchKey)      targetSpeed = CFG.crouchSpeed;
+    else if (sprinting) targetSpeed = CFG.runSpeed;
+
+    /* Базис камеры */
+    const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw);
+    const rx =  Math.cos(p.yaw), rz = -Math.sin(p.yaw);
+
+    let mx = 0, mz = 0;
+    if (keys['KeyW'] || keys['ArrowUp'])    { mx += fx; mz += fz; }
+    if (keys['KeyS'] || keys['ArrowDown'])  { mx -= fx; mz -= fz; }
+    if (keys['KeyD'] || keys['ArrowRight']) { mx += rx; mz += rz; }
+    if (keys['KeyA'] || keys['ArrowLeft'])  { mx -= rx; mz -= rz; }
+
+    const ml = Math.hypot(mx, mz);
+    if (ml > 1e-5) { mx = (mx / ml) * targetSpeed; mz = (mz / ml) * targetSpeed; }
+    else           { mx = 0; mz = 0; }
+
+    /* Инерция */
+    const k = Math.min(1, (p.onGround ? CFG.accelGround : CFG.accelAir) * dt);
+    p.vel.x += (mx - p.vel.x) * k;
+    p.vel.z += (mz - p.vel.z) * k;
+
+    /* Гравитация */
+    p.vel.y -= CFG.gravity * dt;
+
+    /* Горизонтальное интегрирование + разрешение коллизий */
+    const next = this._tmp1.copy(p.pos).addScaledVector(p.vel, dt);
+    this._colliders.resolveSphere(next, p.radius, next);
+    p.pos.copy(next);
+
+    /* Пол под игроком через вертикальный рейкаст — работает и на площадках */
+    const groundY = this._colliders.floorHeightAt(
+      p.pos.x, p.pos.z, p.pos.y + 2.0, p.pos.y - 2.0
+    );
+
+    if (p.pos.y <= groundY + 0.001) {
+      p.pos.y = groundY;
+      if (p.vel.y < 0) p.vel.y = 0;
+      p.onGround = true;
+    } else {
+      p.onGround = false;
+    }
+    /* Страховочная нижняя граница */
+    if (p.pos.y < 0) {
+      p.pos.y = 0;
+      if (p.vel.y < 0) p.vel.y = 0;
+      p.onGround = true;
+    }
+
+    /* Покачивание головы */
+    const hSpeed = Math.hypot(p.vel.x, p.vel.z);
+    p.bobT = (p.bobT ?? 0) + dt * hSpeed * 1.95;
+
+    const bobAmp  = p.onGround ? Math.min(hSpeed / CFG.runSpeed, 1) * CFG.bobAmount : 0;
+    const bobY    = Math.sin(p.bobT * 2) * bobAmp;
+    const bobRoll = Math.cos(p.bobT) * bobAmp * 0.35;
+
+    /* Камера */
+    this.camera.position.set(p.pos.x, p.pos.y + eyeHeight + bobY, p.pos.z);
+
+    const cp = Math.cos(p.pitch);
+    const lx = -Math.sin(p.yaw) * cp;
+    const ly =  Math.sin(p.pitch);
+    const lz = -Math.cos(p.yaw) * cp;
+    this.camera.lookAt(
+      this.camera.position.x + lx,
+      this.camera.position.y + ly,
+      this.camera.position.z + lz
+    );
+    if (Math.abs(bobRoll) > 1e-4) this.camera.rotateZ(bobRoll);
+
+    /* Динамический FOV при беге */
+    const targetFov = (sprinting && hSpeed > 1.5) ? CFG.fovRun : CFG.fovWalk;
+    const cam = this.camera;
+    const nf = cam.fov + (targetFov - cam.fov) * Math.min(1, dt * 5);
+    if (Math.abs(nf - cam.fov) > 0.02) {
+      cam.fov = nf;
+      cam.updateProjectionMatrix();
+    }
+
+    /* HUD */
+    let stance = 'Стоя';
+    if (p.crouchT > 0.5)                stance = 'Присед';
+    else if (sprinting && hSpeed > 1.5) stance = 'Бег';
+    else if (hSpeed > 0.35)             stance = 'Ходьба';
+    if (!p.onGround)                    stance = 'В воздухе';
+
+    this._hudState.stance = stance;
+    this._hudState.speed  = hSpeed;
+    this._hudState.sprint = sprinting;
+    this._hudState.crouch = p.crouchT;
+  };
+
+  /* ----- Обёртка setWalkMode: спавн и корректный FOV ----- */
+  const baseSetWalkMode = world.setWalkMode.bind(world);
+
+  world.setWalkMode = function (enable = true) {
+    const was = this._walkMode;
+    baseSetWalkMode(enable);
+
+    if (enable && !was) {
+      const p = this._player;
+      if (!p) return;
+
+      const safe = this._colliders.resolveSphere(
+        new THREE.Vector3(CFG.spawn.x, 0.5, CFG.spawn.z), p.radius
+      );
+      p.pos.set(safe.x, 0, safe.z);
+      p.vel.set(0, 0, 0);
+      p.yaw      = CFG.spawn.yaw;
+      p.pitch    = -0.04;
+      p.crouchT  = 0;
+      p.bobT     = 0;
+      p.onGround = true;
+
+      this.camera.position.set(p.pos.x, p.pos.y + CFG.standEye, p.pos.z);
+      this.camera.fov = CFG.fovWalk;
+      this.camera.updateProjectionMatrix();
+
+    } else if (!enable) {
+      this.camera.fov = CFG.fovOrbit;
+      this.camera.updateProjectionMatrix();
+    }
+  };
+}
+
+installPlayerEnhancements(world);
+
+/* ============================================================
+   4. UI
+   ============================================================ */
+const overlay   = document.getElementById('overlay');
+const startBtn  = document.getElementById('startBtn');
+const crosshair = document.getElementById('crosshair');
+const hud       = document.getElementById('hud');
+const fpsBox    = document.getElementById('fps');
+const hint      = document.getElementById('hint');
+
+const hudMode   = document.getElementById('hudMode');
+const hudStance = document.getElementById('hudStance');
+const hudSpeed  = document.getElementById('hudSpeed');
+const hudBar    = document.getElementById('hudBar');
+const fpsVal    = document.getElementById('fpsVal');
+
+startBtn.addEventListener('click', () => {
+  if (!world.walkMode) world.setWalkMode(true);
+});
+
+app.addEventListener('walkmodechange', (e) => {
+  const on = e.detail.enabled;
+
+  overlay.classList.toggle('off', on);
+  crosshair.classList.toggle('hidden', !on);
+  hud.classList.toggle('hidden', !on);
+  hint.classList.toggle('hidden', !on);
+
+  hudMode.textContent = on ? 'Пеший' : 'Орбита';
+});
+
+/* ============================================================
+   5. ГЛОБАЛЬНЫЕ ГОРЯЧИЕ КЛАВИШИ (вне пешего режима — не трогаем)
+   ============================================================ */
+window.addEventListener('keydown', (e) => {
+  if (!world.walkMode) return;
+
+  /* Запрещаем прокрутку страницы пробелом/стрелками */
+  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+    e.preventDefault();
+  }
+
+  /* Респавн по R */
+  if (e.code === 'KeyR' && !e.repeat) {
+    const p = world._player;
+    if (!p) return;
+    const safe = world._colliders.resolveSphere(
+      new THREE.Vector3(CFG.spawn.x, 0.5, CFG.spawn.z), p.radius
+    );
+    p.pos.set(safe.x, 0, safe.z);
+    p.vel.set(0, 0, 0);
+    p.yaw      = CFG.spawn.yaw;
+    p.pitch    = -0.04;
+    p.onGround = true;
+  }
+
+  /* Страховочный выход из Pointer Lock по Esc */
+  if (e.code === 'Escape') {
+    world.setWalkMode(false);
+  }
+}, { passive: false });
+
+document.addEventListener('pointerlockerror', () => {
+  console.warn('[FPS] Pointer Lock недоступен — обзор мышью отключён.');
+});
+
+/* ============================================================
+   6. ЦИКЛ ОБНОВЛЕНИЯ HUD / FPS-СЧЁТЧИКА
+   ============================================================ */
+let frames = 0;
+let lastT  = performance.now();
+
+function uiTick() {
+  requestAnimationFrame(uiTick);
+
+  /* FPS-счётчик работает всегда */
+  frames++;
+  const now = performance.now();
+  if (now - lastT >= 500) {
+    fpsVal.textContent = String(Math.round((frames * 1000) / (now - lastT)));
+    frames = 0;
+    lastT  = now;
+  }
+
+  fpsBox.classList.toggle('hidden', !world.walkMode);
+
+  if (!world.walkMode) return;
+
+  const st = world._hudState;
+  hudStance.textContent = st.stance;
+  hudSpeed.textContent  = st.speed.toFixed(1) + ' м/с';
+  hudBar.style.width    = Math.min(100, (st.speed / CFG.runSpeed) * 100) + '%';
+
+  hudStance.style.color =
+    st.stance === 'Бег'       ? '#ffb454' :
+    st.stance === 'Присед'    ? '#7fffd4' :
+    st.stance === 'В воздухе' ? '#ff7f9f' : '#7fd7ff';
+}
+uiTick();
+
+/* ============================================================
+   7. РЕСАЙЗ (контейнер + окно)
+   ============================================================ */
+window.addEventListener('resize', () => world.resize());
+
+console.log(
+  '%c[Factory FPS] готов. Нажмите «ВОЙТИ НА ТЕРРИТОРИЮ» или Tab / F.',
+  'color:#7fd7ff'
+);
+</script>
+</body>
+</html>
